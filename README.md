@@ -46,8 +46,8 @@ python orchestrator.py --debug    # also dumps intermediate JSON to debug/
 ## 1. Sleeper Agent (`sleeper_agent.py`)
 
 Fetches your leagues and rosters from the public Sleeper API (no auth required) for
-username `lukeyboy11111`. The season is resolved dynamically from Sleeper's `/state/nfl`
-endpoint, so nothing needs to be hardcoded year to year.
+your configured Sleeper username. The season is resolved dynamically from Sleeper's
+`/state/nfl` endpoint, so nothing needs to be hardcoded year to year.
 
 For each league, it also:
 

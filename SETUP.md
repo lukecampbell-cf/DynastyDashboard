@@ -2,8 +2,8 @@
 
 ## Prerequisites
 - Python 3.11+
-- Nginx serving lukesplace.net with web root at /var/www/sites/lukesplace.net/httpdocs/
-- Your rotated Anthropic API key (DASHBOARD_KEY)
+- Nginx serving your-domain.com with web root at /var/www/sites/your-domain.com/httpdocs/
+- Your Anthropic API key (DASHBOARD_KEY)
 - A Parse Bot API key (PARSE_BOT_API) — powers the Contract Agent's Spotrac lookup and
   the News Agent's ESPN feed. Non-fatal if missing: those two steps just return no
   data and the pipeline continues.
@@ -14,7 +14,7 @@
 
 From your local machine:
 ```bash
-scp -r ./dashboard/ user@lukesplace.net:~/dynasty-dashboard/
+scp -r ./dashboard/ user@your-domain.com:~/dynasty-dashboard/
 ```
 
 Or clone/create the directory directly on the VPS.
@@ -47,9 +47,9 @@ chmod 600 .env   # restrict read access
 ## 4. Create the dashboard directory
 
 ```bash
-sudo mkdir -p /var/www/vhosts/lukesplace.net/httpdocs/dashboard
-sudo chown $USER:www-data /var/www/vhosts/lukesplace.net/httpdocs/dashboard
-sudo chmod 775 /var/www/vhosts/lukesplace.net/httpdocs/dashboard
+sudo mkdir -p /var/www/vhosts/your-domain.com/httpdocs/dashboard
+sudo chown $USER:www-data /var/www/vhosts/your-domain.com/httpdocs/dashboard
+sudo chmod 775 /var/www/vhosts/your-domain.com/httpdocs/dashboard
 ```
 
 ---
@@ -71,7 +71,7 @@ This writes to /tmp/dynasty_dashboard_preview.html — open it in a browser (scp
 python orchestrator.py
 ```
 
-Dashboard will be live at: https://lukesplace.net/dashboard/
+Dashboard will be live at: https://your-domain.com/dashboard/
 
 ---
 
@@ -84,23 +84,23 @@ crontab -e
 Add:
 ```
 # Dynasty Dashboard — refresh every 4 hours
-0 */4 * * * cd /var/www/vhosts/lukesplace.net/dashboard && /var/www/vhosts/lukesplace.net/dashboard/venv/bin/python orchestrator.py >> /var/www/vhosts/lukesplace.net/dashboard/cron.log 2>&1
+0 */4 * * * cd /var/www/vhosts/your-domain.com/dashboard && /var/www/vhosts/your-domain.com/dashboard/venv/bin/python orchestrator.py >> /var/www/vhosts/your-domain.com/dashboard/cron.log 2>&1
 
 # During season (Sep-Jan): hourly on match days (Thu, Sun, Mon)
-# 0 * * * 0,1,4 cd /var/www/vhosts/lukesplace.net/dashboard && /var/www/vhosts/lukesplace.net/dashboard/venv/bin/python orchestrator.py >> cron.log 2>&1
+# 0 * * * 0,1,4 cd /var/www/vhosts/your-domain.com/dashboard && /var/www/vhosts/your-domain.com/dashboard/venv/bin/python orchestrator.py >> cron.log 2>&1
 ```
 
-Replace YOUR_USER with your actual VPS username.
+Replace `your-domain.com` and paths above with your actual VPS domain and username.
 
 ---
 
 ## 8. Nginx location block (if /dashboard/ is not auto-served)
 
-Add to your lukesplace.net server block in /etc/nginx/sites-available/lukesplace.net:
+Add to your your-domain.com server block in /etc/nginx/sites-available/your-domain.com:
 
 ```nginx
 location /dashboard/ {
-    alias /var/www/vhosts/lukesplace.net/httpdocs/dashboard/;
+    alias /var/www/vhosts/your-domain.com/httpdocs/dashboard/;
     index index.html;
     try_files $uri $uri/ =404;
 }
