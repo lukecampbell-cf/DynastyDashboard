@@ -46,8 +46,8 @@ python orchestrator.py --debug    # also dumps intermediate JSON to debug/
 ## 1. Sleeper Agent (`sleeper_agent.py`)
 
 Fetches your leagues and rosters from the public Sleeper API (no auth required) for
-your configured Sleeper username. The season is resolved dynamically from Sleeper's
-`/state/nfl` endpoint, so nothing needs to be hardcoded year to year.
+the username in `SLEEPER_USERNAME` (`.env`). The season is resolved dynamically from
+Sleeper's `/state/nfl` endpoint, so nothing needs to be hardcoded year to year.
 
 For each league, it also:
 
@@ -320,6 +320,7 @@ needing a build step or JS framework.
 | `player_cache.json` (project root) | Per-player bio/id details (name, team, age, draft year, FantasyPros id) | 2 weeks per player |
 | `player_cache.json` → `.<id>.contract` | Spotrac contract terms per player | 4 weeks per player |
 | `trade_values.json` (project root) | RosterAudit dynasty trade values + pick tier chart, sf & 1qb | 1 week |
+| `league_summary_cache.json` (project root) | Per-league Haiku executive summary, keyed by league_id | regenerated only when trend/injury counts change |
 | `pipeline.log` | Orchestrator run log | append-only |
 | `debug/*.json` | Intermediate stage output, only with `--debug` | per run |
 

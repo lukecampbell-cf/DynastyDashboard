@@ -14,7 +14,7 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
-OUTPUT_PATH = "/var/www/vhosts/lukesplace.net/httpdocs/dashboard/index.html"
+OUTPUT_PATH = os.environ.get("DASHBOARD_OUTPUT_PATH", "")
 
 
 def trend_icon(trend: str) -> str:
@@ -211,7 +211,7 @@ def render_league_nav(leagues: list) -> str:
 
 def render_html(reasoning_data: dict) -> str:
     """Render the full HTML dashboard."""
-    username = reasoning_data.get("username", "lukeyboy11111")
+    username = reasoning_data.get("username", os.environ.get("SLEEPER_USERNAME", "your_username"))
     season = reasoning_data.get("season", "2025")
     leagues = reasoning_data.get("leagues", [])
     updated_at = datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M UTC")
@@ -816,7 +816,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [DASHBOARD] %(message)s")
     # Test with empty data
     mock_data = {
-        "username": "lukeyboy11111",
+        "username": os.environ.get("SLEEPER_USERNAME", "your_username"),
         "season": "2025",
         "leagues": [],
         "global_trends": {"trending_up": [], "trending_down": [], "watch_list": []},

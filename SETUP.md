@@ -39,6 +39,8 @@ cp .env.example .env
 nano .env
 # Set DASHBOARD_KEY=your-rotated-api-key
 # Set PARSE_BOT_API=your-parse-bot-api-key
+# Set SLEEPER_USERNAME=your-sleeper-username
+# Set DASHBOARD_OUTPUT_PATH=/var/www/vhosts/your-domain.com/httpdocs/dashboard/index.html
 chmod 600 .env   # restrict read access
 ```
 

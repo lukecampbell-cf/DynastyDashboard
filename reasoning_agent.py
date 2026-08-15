@@ -18,6 +18,9 @@ log = logging.getLogger(__name__)
 
 API_KEY = os.environ.get("DASHBOARD_KEY")
 
+SONNET_MODEL = "claude-sonnet-4-6"
+HAIKU_MODEL = "claude-haiku-4-5"
+
 # Cross-league, cross-run analysis cache. A player rostered in multiple
 # leagues is analysed once and reused everywhere else within the freshness
 # window, instead of burning an API call per league.
@@ -30,6 +33,13 @@ API_KEY = os.environ.get("DASHBOARD_KEY")
 # boundary).
 CACHE_PATH = Path(__file__).resolve().parent / "player_analysis_cache.json"
 CACHE_FRESHNESS = timedelta(hours=4)
+
+# Per-league executive summary cache, keyed by league_id. Regenerated only
+# when compute_summary_fingerprint() changes — the summary is templated
+# prose over counts/names already computed from the (already-cached) player
+# analyses, so re-running it against an unchanged fingerprint would just pay
+# Haiku to restate the same sentence.
+SUMMARY_CACHE_PATH = Path(__file__).resolve().parent / "league_summary_cache.json"
 
 # Beyond CACHE_FRESHNESS, a player is still re-checked against their prior
 # analysis (see is_quiet_reuse_eligible) rather than re-run through the LLM,
@@ -50,12 +60,14 @@ BATCH_SIZE = 20
 
 # Prompt caching is GA (no beta header needed/accepted anymore — sending the
 # old "anthropic-beta: prompt-caching-2024-07-15" header now gets a hard 400).
-# cache_control below is left in as a forward-compatible no-op: verified live
-# against the real API that it currently creates zero cache (cache_creation/
-# read_input_tokens both stayed 0 across repeated identical calls) because
-# SYSTEM_PROMPT (~820 tokens) is under Anthropic's ~1024-token minimum
-# cacheable block size for Sonnet. Batching is the actual win here; caching
-# would only start paying off if the system prompt grows past that floor.
+# cache_control below actually activates for Sonnet calls: Sonnet's minimum
+# cacheable block is 1,024 tokens, and SYSTEM_PROMPT (see the confidence/flag/
+# aging-curve sections added below) now clears that. Within a run, batches
+# fire back-to-back well inside the 5-minute cache TTL, so only the first
+# Sonnet batch pays full price — the rest read the cached system prompt at a
+# steep discount. Haiku's minimum is 4,096 tokens (4x Sonnet's), far past what
+# a genuinely useful system prompt would need, so Haiku batches never hit
+# their cache — cache_control is a harmless no-op for them, not a cost.
 
 
 def get_client() -> anthropic.Anthropic:
@@ -87,6 +99,26 @@ def save_analysis_cache(cache: dict) -> None:
         log.error(f"Failed to save analysis cache: {e}")
 
 
+def load_summary_cache() -> dict:
+    """Load the persisted per-league summary cache, keyed by league_id."""
+    if not SUMMARY_CACHE_PATH.exists():
+        return {}
+    try:
+        with open(SUMMARY_CACHE_PATH) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        log.warning(f"Could not read summary cache, starting fresh: {e}")
+        return {}
+
+
+def save_summary_cache(cache: dict) -> None:
+    try:
+        with open(SUMMARY_CACHE_PATH, "w") as f:
+            json.dump(cache, f, indent=2, sort_keys=True)
+    except OSError as e:
+        log.error(f"Failed to save summary cache: {e}")
+
+
 def is_cache_entry_fresh(entry: Optional[dict]) -> bool:
     """True if the cached entry has a reasoning result analysed within CACHE_FRESHNESS."""
     if not entry or not entry.get("last_analyzed") or not entry.get("reasoning"):
@@ -115,6 +147,42 @@ def compute_signal_fingerprint(player: dict) -> dict:
             item.get("headline") or "" for item in (player.get("news_items") or [])
         ),
     }
+
+
+def has_zero_signal(player: dict) -> bool:
+    """
+    True if there's nothing for the model to react to: no news items, no
+    injury designation, and not on IR/taxi. These players get a templated
+    response instead of an LLM call — Sonnet has nothing to say about a
+    healthy bench player with zero news beyond a generic hold, so paying
+    per-token for that verdict is wasted spend. The cache entry still
+    carries a signal fingerprint, so the moment real news/injury/roster
+    status shows up, is_quiet_reuse_eligible() returns False and the player
+    gets a real analysis on the next run.
+    """
+    return (
+        not (player.get("news_items") or [])
+        and not (player.get("injury_status") or player.get("news_injury_status"))
+        and not player.get("is_ir", False)
+        and not player.get("is_taxi", False)
+    )
+
+
+def requires_sonnet_analysis(player: dict) -> bool:
+    """
+    True if a player's signal is significant enough to warrant Sonnet's
+    deeper reasoning: a flagged injury (news_agent.cross_reference's
+    injury-keyword match) or an IR/taxi roster status. Everything else that
+    still clears has_zero_signal() — e.g. a routine transaction or
+    depth-chart blurb with no injury angle — is templated-quality territory
+    rather than nuance territory, so it's routed to Haiku at a fraction of
+    the cost with no meaningful quality loss.
+    """
+    return bool(
+        player.get("has_injury_flag")
+        or player.get("is_ir", False)
+        or player.get("is_taxi", False)
+    )
 
 
 def is_quiet_reuse_eligible(entry: Optional[dict], player: dict) -> bool:
@@ -177,6 +245,25 @@ fantasy_impact = how long the news affects their fantasy value (SHORT=1-2 weeks,
 CONTRACT DATA, when marked verified, comes from a live Spotrac lookup — treat it as ground truth over your own knowledge.
 DRAFT YEAR, when given, comes directly from the league's own player database — treat it as ground truth over your own knowledge of when a player was drafted.
 roster_status_note is a best-effort characterization from your general knowledge, not a lookup against a live depth chart feed — favor honest hedging over fabricated precision.
+
+confidence calibration:
+- HIGH: verified injury/trade/depth-chart news from a named source, or a confirmed roster move with no real ambiguity left.
+- MEDIUM: credible reporting but incomplete — e.g. "week-to-week" with no target return date, or beat reporters giving conflicting takes on a role.
+- LOW: thin or stale signal — a single unconfirmed report, or an assessment leaning mostly on general knowledge rather than fresh news.
+
+flag definitions — include only tags that genuinely apply, omit the rest:
+- injury: an active or recently resolved injury designation is driving this assessment.
+- trade: a trade, waiver claim, or free-agent signing changed this player's situation.
+- depth_chart: a role or starting-job change (promotion, demotion, committee shift) not tied to injury or a trade.
+- breakout: usage or performance trending meaningfully upward beyond what their prior role predicted.
+- bust_risk: real risk this player underperforms their current draft/trade value (age cliff, crowded backfield, contract dispute, etc.).
+- target_share: a notable shift, up or down, in receiving or carry share specifically — distinct from a full depth-chart change.
+
+positional dynasty aging curves — use as a prior alongside the player's actual situation, not a substitute for it:
+- RB: value typically declines sharply from age 27-28 onward; a 24-and-under back on a clear path to touches is worth more than raw current production alone would suggest.
+- WR: value tends to peak later and hold longer than RB, often into the late 20s; route-running and separation skills age better than pure speed.
+- TE: production is usually back-loaded — most see their best fantasy seasons in years 3-5, not as rookies, so early-career quiet stretches are less concerning than they'd be at other positions.
+- QB: the longest earning window of any position, and especially valuable in superflex/2-QB formats where replacement-level value at the position is much higher than in single-QB leagues.
 """
 
 
@@ -210,6 +297,50 @@ def format_contract_block(contract: Optional[dict]) -> str:
     return "\n".join(lines) if len(lines) > 1 else fallback
 
 
+def build_zero_signal_reasoning(player: dict) -> dict:
+    """
+    Templated reasoning for a has_zero_signal() player — no LLM call. The
+    contract note is pulled straight from the verified Spotrac fields
+    (ground truth already, no need to have Sonnet restate it); dynasty_note
+    and roster_status_note have no cheap non-LLM substitute so are left
+    blank rather than guessed.
+    """
+    contract = player.get("contract")
+    contract_note = None
+    if contract and contract.get("found"):
+        span = contract.get("contract_span")
+        if span:
+            deal_type = contract.get("contract_type")
+            contract_note = f"{deal_type + ' ' if deal_type else ''}contract, {span}".strip()
+
+    return {
+        "trend": "WATCH",
+        "confidence": "LOW",
+        "summary": "No recent news or injury designation — nothing new this cycle.",
+        "fantasy_impact": "NONE",
+        "recommendation": "Hold. No action needed based on current information.",
+        "dynasty_note": None,
+        "contract_note": contract_note,
+        "roster_status_note": None,
+        "flags": [],
+    }
+
+
+# Per-item news text fields (body/analysis) are capped at this many
+# characters before being spliced into the prompt — some scraped articles
+# run to several paragraphs, and the headline alone already carries most of
+# the trend-relevant signal. Bounds prompt size per player regardless of how
+# verbose a given source's write-up happens to be, without dropping the item
+# outright (a truncated body still beats no context at all).
+NEWS_FIELD_MAX_CHARS = 250
+
+
+def truncate_news_field(text: Optional[str]) -> Optional[str]:
+    if not text or len(text) <= NEWS_FIELD_MAX_CHARS:
+        return text
+    return text[:NEWS_FIELD_MAX_CHARS].rstrip() + "…"
+
+
 def build_player_block(player: dict) -> str:
     """
     Build one player's analysis block, tagged with its Sleeper player_id so a
@@ -234,8 +365,8 @@ def build_player_block(player: dict) -> str:
     for item in (player.get("news_items") or [])[:5]:  # cap at 5 items
         parts = filter(None, [
             item.get("headline"),
-            item.get("body"),
-            item.get("analysis"),
+            truncate_news_field(item.get("body")),
+            truncate_news_field(item.get("analysis")),
         ])
         text = " | ".join(parts)
         if text:
@@ -312,7 +443,7 @@ def analyse_player(client: anthropic.Anthropic, player: dict, retries: int = 2) 
     for attempt in range(retries + 1):
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-6",
+                model=SONNET_MODEL,
                 max_tokens=1000,
                 system=cached_system_block(),
                 messages=[{"role": "user", "content": prompt}],
@@ -348,10 +479,16 @@ def analyse_player(client: anthropic.Anthropic, player: dict, retries: int = 2) 
     return None
 
 
-def analyse_players_batch(client: anthropic.Anthropic, players: list[dict], retries: int = 2) -> dict[str, dict]:
+def analyse_players_batch(
+    client: anthropic.Anthropic, players: list[dict], retries: int = 2, model: str = SONNET_MODEL
+) -> dict[str, dict]:
     """
     Call the Anthropic API once to analyse a whole batch of players, returning
     a dict of player_id (str) -> parsed reasoning dict.
+
+    `model` lets callers route low-stakes batches (no injury/roster flag —
+    see requires_sonnet_analysis) to Haiku instead of Sonnet; the prompt and
+    schema are identical either way.
 
     A player_id missing from the response — because the model dropped it, or
     the whole batch failed to parse even after retries — is simply absent
@@ -371,7 +508,7 @@ def analyse_players_batch(client: anthropic.Anthropic, players: list[dict], retr
     for attempt in range(retries + 1):
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-6",
+                model=model,
                 max_tokens=max_tokens,
                 system=cached_system_block(),
                 messages=[{"role": "user", "content": prompt}],
@@ -412,6 +549,30 @@ def analyse_players_batch(client: anthropic.Anthropic, players: list[dict], retr
     return {}
 
 
+def compute_summary_fingerprint(analysed_players: list[dict]) -> dict:
+    """
+    Everything generate_league_summary()'s prompt is actually built from:
+    the trend/injury counts and the same top-5 name lists that get spliced
+    into the prompt text. If this is unchanged since the last run, Haiku
+    would be asked to restate the same facts, so the cached summary is
+    reused instead of paying for a new call.
+    """
+    up = [p for p in analysed_players if p.get("reasoning", {}).get("trend") == "UP"]
+    down = [p for p in analysed_players if p.get("reasoning", {}).get("trend") == "DOWN"]
+    watch = [p for p in analysed_players if p.get("reasoning", {}).get("trend") == "WATCH"]
+    injured = [p for p in analysed_players if p.get("has_injury_flag")]
+    return {
+        "total": len(analysed_players),
+        "up": len(up),
+        "down": len(down),
+        "watch": len(watch),
+        "injured": len(injured),
+        "up_names": sorted(p["full_name"] for p in up[:5]),
+        "down_names": sorted(p["full_name"] for p in down[:5]),
+        "injured_names": sorted(p["full_name"] for p in injured[:5]),
+    }
+
+
 def generate_league_summary(client: anthropic.Anthropic, league_name: str, analysed_players: list[dict]) -> str:
     """
     Generate a short executive summary for the league dashboard header.
@@ -442,7 +603,7 @@ Be specific, direct, and use the data above. No generic filler. Respond with pla
 
     try:
         response = client.messages.create(
-            model="claude-haiku-4-5",
+            model=HAIKU_MODEL,
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -450,6 +611,43 @@ Be specific, direct, and use the data above. No generic filler. Respond with pla
     except Exception as e:
         log.error(f"Failed to generate league summary: {e}")
         return f"{league_name}: {len(up)} trending up, {len(down)} trending down, {len(injured)} injury concerns."
+
+
+def analyse_in_batches(
+    client: anthropic.Anthropic, players: list[dict], model: str, analysis_cache: dict
+) -> int:
+    """
+    Batch-analyse `players` BATCH_SIZE at a time using `model`, writing
+    results (and re-saving incrementally, so a crash partway through a long
+    run doesn't throw away batches already done) into analysis_cache.
+    Returns the number of players successfully analysed.
+    """
+    analysed_count = 0
+    for batch_start in range(0, len(players), BATCH_SIZE):
+        batch = players[batch_start:batch_start + BATCH_SIZE]
+        batch_num = batch_start // BATCH_SIZE + 1
+        total_batches = (len(players) + BATCH_SIZE - 1) // BATCH_SIZE
+        log.info(f"Analysing {model} batch {batch_num}/{total_batches} ({len(batch)} players)...")
+
+        batch_results = analyse_players_batch(client, batch, model=model)
+        now = datetime.now(timezone.utc).isoformat()
+        for player in batch:
+            pid = str(player.get("player_id"))
+            reasoning = batch_results.get(pid)
+            if reasoning:
+                analysis_cache[pid] = {
+                    "full_name": player.get("full_name", "Unknown"),
+                    "reasoning": reasoning,
+                    "last_analyzed": now,
+                    "signal": compute_signal_fingerprint(player),
+                }
+                analysed_count += 1
+            else:
+                log.warning(f"  No result for {player.get('full_name')} (pid={pid}) — will retry next run")
+
+        save_analysis_cache(analysis_cache)
+        time.sleep(0.5)
+    return analysed_count
 
 
 def run(sleeper_data: dict, news_data: dict) -> dict:
@@ -463,6 +661,10 @@ def run(sleeper_data: dict, news_data: dict) -> dict:
     analysis_cache = load_analysis_cache()
     cache_hits = 0
     cache_misses = 0
+
+    summary_cache = load_summary_cache()
+    summary_cache_hits = 0
+    summary_cache_misses = 0
 
     result = {
         "username": sleeper_data.get("username"),
@@ -503,6 +705,7 @@ def run(sleeper_data: dict, news_data: dict) -> dict:
     # a fresh analysis.
     to_analyse = []
     quiet_reuses = 0
+    zero_signal_skips = 0
     now_iso = datetime.now(timezone.utc).isoformat()
     for pid, player in unique_players.items():
         cached_entry = analysis_cache.get(pid)
@@ -512,37 +715,29 @@ def run(sleeper_data: dict, news_data: dict) -> dict:
             cached_entry["last_analyzed"] = now_iso
             quiet_reuses += 1
             continue
+        if has_zero_signal(player):
+            analysis_cache[pid] = {
+                "full_name": player.get("full_name", "Unknown"),
+                "reasoning": build_zero_signal_reasoning(player),
+                "last_analyzed": now_iso,
+                "signal": compute_signal_fingerprint(player),
+            }
+            zero_signal_skips += 1
+            continue
         to_analyse.append(player)
 
-    cache_hits = len(unique_players) - len(to_analyse) - quiet_reuses
+    cache_hits = len(unique_players) - len(to_analyse) - quiet_reuses - zero_signal_skips
 
-    # Pass 1b: batch-analyse the real cache misses, BATCH_SIZE players per call.
-    for batch_start in range(0, len(to_analyse), BATCH_SIZE):
-        batch = to_analyse[batch_start:batch_start + BATCH_SIZE]
-        batch_num = batch_start // BATCH_SIZE + 1
-        total_batches = (len(to_analyse) + BATCH_SIZE - 1) // BATCH_SIZE
-        log.info(f"Analysing batch {batch_num}/{total_batches} ({len(batch)} players)...")
+    # Pass 1b: batch-analyse the real cache misses, BATCH_SIZE players per
+    # call, routed by requires_sonnet_analysis — injury/IR/taxi-flagged
+    # players get Sonnet's deeper reasoning; routine news-only players get
+    # Haiku at a fraction of the cost.
+    sonnet_players = [p for p in to_analyse if requires_sonnet_analysis(p)]
+    haiku_players = [p for p in to_analyse if not requires_sonnet_analysis(p)]
 
-        batch_results = analyse_players_batch(client, batch)
-        now = datetime.now(timezone.utc).isoformat()
-        for player in batch:
-            pid = str(player.get("player_id"))
-            reasoning = batch_results.get(pid)
-            if reasoning:
-                analysis_cache[pid] = {
-                    "full_name": player.get("full_name", "Unknown"),
-                    "reasoning": reasoning,
-                    "last_analyzed": now,
-                    "signal": compute_signal_fingerprint(player),
-                }
-                cache_misses += 1
-            else:
-                log.warning(f"  No result for {player.get('full_name')} (pid={pid}) — will retry next run")
-
-        # Save incrementally after each batch, not just at the end — a crash
-        # partway through a long run shouldn't throw away batches already done.
-        save_analysis_cache(analysis_cache)
-        time.sleep(0.5)
+    sonnet_misses = analyse_in_batches(client, sonnet_players, SONNET_MODEL, analysis_cache)
+    haiku_misses = analyse_in_batches(client, haiku_players, HAIKU_MODEL, analysis_cache)
+    cache_misses += sonnet_misses + haiku_misses
 
     # Pass 2: assemble each league's output from the now fully-populated cache.
     for league in sleeper_data.get("leagues", []):
@@ -573,8 +768,18 @@ def run(sleeper_data: dict, news_data: dict) -> dict:
 
             analysed.append(player_result)
 
-        # Generate league summary
-        summary = generate_league_summary(client, league_name, analysed)
+        # Generate league summary, reusing the cached one if nothing about
+        # the league's trend/injury picture has changed since last time.
+        league_id = league["league_id"]
+        summary_fingerprint = compute_summary_fingerprint(analysed)
+        cached_summary_entry = summary_cache.get(league_id)
+        if cached_summary_entry and cached_summary_entry.get("fingerprint") == summary_fingerprint:
+            summary = cached_summary_entry["summary"]
+            summary_cache_hits += 1
+        else:
+            summary = generate_league_summary(client, league_name, analysed)
+            summary_cache[league_id] = {"summary": summary, "fingerprint": summary_fingerprint}
+            summary_cache_misses += 1
 
         # Sort into trend buckets
         trending_up = sorted(
@@ -626,9 +831,13 @@ def run(sleeper_data: dict, news_data: dict) -> dict:
                 seen_watch.add(p["full_name"])
 
     save_analysis_cache(analysis_cache)
+    save_summary_cache(summary_cache)
     log.info(
         f"Reasoning agent complete. {cache_hits} cached (fresh), "
-        f"{quiet_reuses} reused (no new signal), {cache_misses} freshly analysed."
+        f"{quiet_reuses} reused (no new signal), {zero_signal_skips} templated "
+        f"(no news/injury, no LLM call), {cache_misses} freshly analysed "
+        f"({sonnet_misses} via Sonnet, {haiku_misses} via Haiku). "
+        f"League summaries: {summary_cache_hits} cached, {summary_cache_misses} regenerated."
     )
     return result
 

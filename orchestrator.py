@@ -44,11 +44,11 @@ logging.basicConfig(
 )
 log = logging.getLogger("orchestrator")
 
-OUTPUT_PATH = "/var/www/vhosts/lukesplace.net/httpdocs/dashboard/index.html"
+OUTPUT_PATH = os.environ.get("DASHBOARD_OUTPUT_PATH", "")
 DRY_RUN_PATH = "/tmp/dynasty_dashboard_preview.html"
 
 
-def check_environment() -> bool:
+def check_environment(dry_run: bool = False) -> bool:
     """Validate required environment variables are set."""
     key = os.environ.get("DASHBOARD_KEY")
     if not key:
@@ -57,6 +57,12 @@ def check_environment() -> bool:
         return False
     if not key.startswith("sk-ant-"):
         log.error("DASHBOARD_KEY does not look like a valid Anthropic API key.")
+        return False
+    if not os.environ.get("SLEEPER_USERNAME"):
+        log.error("SLEEPER_USERNAME not set. Add it to your .env file.")
+        return False
+    if not dry_run and not os.environ.get("DASHBOARD_OUTPUT_PATH"):
+        log.error("DASHBOARD_OUTPUT_PATH not set. Add it to your .env file.")
         return False
     if not os.environ.get("PARSE_BOT_API"):
         log.warning(
@@ -187,7 +193,7 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true", help="Save intermediate pipeline data")
     args = parser.parse_args()
 
-    if not check_environment():
+    if not check_environment(dry_run=args.dry_run):
         sys.exit(1)
 
     success = run_pipeline(dry_run=args.dry_run)

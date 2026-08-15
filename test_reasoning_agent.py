@@ -52,6 +52,45 @@ def mock_response(payload: dict) -> MagicMock:
     return resp
 
 
+class NewsFieldTruncationTests(unittest.TestCase):
+    def test_short_text_is_left_untouched(self):
+        text = "Limited in practice Wednesday with a knee injury."
+        self.assertEqual(ra.truncate_news_field(text), text)
+
+    def test_long_text_is_truncated_with_ellipsis(self):
+        text = "x" * (ra.NEWS_FIELD_MAX_CHARS + 100)
+        result = ra.truncate_news_field(text)
+        self.assertEqual(len(result), ra.NEWS_FIELD_MAX_CHARS + 1)  # +1 for the ellipsis char
+        self.assertTrue(result.endswith("…"))
+
+    def test_none_and_empty_pass_through(self):
+        self.assertIsNone(ra.truncate_news_field(None))
+        self.assertEqual(ra.truncate_news_field(""), "")
+
+    def test_build_player_block_truncates_body_and_analysis_but_not_headline(self):
+        long_body = "b" * (ra.NEWS_FIELD_MAX_CHARS + 50)
+        long_analysis = "a" * (ra.NEWS_FIELD_MAX_CHARS + 50)
+        long_headline = "h" * (ra.NEWS_FIELD_MAX_CHARS + 50)
+        player = make_player("100", "Verbose Player")
+        player["news_items"] = [{
+            "source": "test",
+            "headline": long_headline,
+            "body": long_body,
+            "analysis": long_analysis,
+        }]
+
+        block = ra.build_player_block(player)
+
+        # Headline is passed through in full — it's the field carrying the
+        # trend-relevant signal and is inherently short in practice.
+        self.assertIn(long_headline, block)
+        # Body/analysis are capped, so the untruncated strings must not appear.
+        self.assertNotIn(long_body, block)
+        self.assertNotIn(long_analysis, block)
+        self.assertIn("b" * ra.NEWS_FIELD_MAX_CHARS, block)
+        self.assertIn("a" * ra.NEWS_FIELD_MAX_CHARS, block)
+
+
 class AnalysePlayersBatchTests(unittest.TestCase):
     def test_maps_response_back_to_players_by_id(self):
         players = [make_player("100", "Player A"), make_player("200", "Player B")]
@@ -154,15 +193,21 @@ class RunDedupTests(unittest.TestCase):
         self.cache_path = Path(self._tmpdir.name) / "player_analysis_cache.json"
         self._path_patch = patch.object(ra, "CACHE_PATH", self.cache_path)
         self._path_patch.start()
+        self.summary_cache_path = Path(self._tmpdir.name) / "league_summary_cache.json"
+        self._summary_path_patch = patch.object(ra, "SUMMARY_CACHE_PATH", self.summary_cache_path)
+        self._summary_path_patch.start()
         self._sleep_patch = patch.object(ra.time, "sleep", lambda *_: None)
         self._sleep_patch.start()
 
     def tearDown(self):
         self._sleep_patch.stop()
+        self._summary_path_patch.stop()
         self._path_patch.stop()
         self._tmpdir.cleanup()
 
     def test_player_in_two_leagues_is_only_analysed_once(self):
+        from news_agent import normalise_name
+
         shared_player = make_player("100", "Shared Player")
         sleeper_data = {
             "username": "test",
@@ -174,7 +219,16 @@ class RunDedupTests(unittest.TestCase):
                  "players": [dict(shared_player)]},
             ],
         }
-        news_data = {"news_by_player": {}}
+        news_data = {
+            "news_by_player": {
+                normalise_name("Shared Player"): {
+                    "items": [{"headline": "Shared Player news", "source": "test"}],
+                    "source_count": 1,
+                    "has_injury_flag": False,
+                    "injury_status": None,
+                }
+            }
+        }
 
         payload = {
             "100": {"trend": "UP", "confidence": "HIGH", "summary": "s", "fantasy_impact": "SHORT",
@@ -229,6 +283,130 @@ class RunDedupTests(unittest.TestCase):
 
         mock_client.messages.create.assert_not_called()
         self.assertEqual(result["leagues"][0]["players"][0]["reasoning"]["summary"], "cached")
+
+    def test_injury_flagged_player_routes_to_sonnet_routine_news_routes_to_haiku(self):
+        from news_agent import normalise_name
+
+        injured_player = make_player("100", "Injured Player")
+        routine_player = make_player("200", "Routine Player")
+        sleeper_data = {
+            "username": "test",
+            "season": "2026",
+            "leagues": [
+                {"league_id": "L1", "league_name": "League One", "season": "2026",
+                 "players": [injured_player, routine_player]},
+            ],
+        }
+        news_data = {
+            "news_by_player": {
+                normalise_name("Injured Player"): {
+                    "items": [{"headline": "Injured Player out with knee injury", "source": "test"}],
+                    "source_count": 1,
+                    "has_injury_flag": True,
+                    "injury_status": "Out",
+                },
+                normalise_name("Routine Player"): {
+                    "items": [{"headline": "Routine Player signed to practice squad", "source": "test"}],
+                    "source_count": 1,
+                    "has_injury_flag": False,
+                    "injury_status": None,
+                },
+            }
+        }
+
+        payload_by_model = {
+            ra.SONNET_MODEL: {"100": {"trend": "DOWN", "confidence": "HIGH", "summary": "hurt",
+                                        "fantasy_impact": "SHORT", "recommendation": "sit",
+                                        "dynasty_note": None, "contract_note": None,
+                                        "roster_status_note": None, "flags": ["injury"]}},
+            ra.HAIKU_MODEL: {"200": {"trend": "WATCH", "confidence": "MEDIUM", "summary": "routine",
+                                       "fantasy_impact": "NONE", "recommendation": "monitor",
+                                       "dynasty_note": None, "contract_note": None,
+                                       "roster_status_note": None, "flags": []}},
+        }
+
+        def create_side_effect(*args, **kwargs):
+            return mock_response(payload_by_model[kwargs["model"]])
+
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = create_side_effect
+
+        with patch.object(ra, "get_client", return_value=mock_client), \
+             patch.object(ra, "generate_league_summary", return_value="summary"):
+            result = ra.run(sleeper_data=sleeper_data, news_data=news_data)
+
+        self.assertEqual(mock_client.messages.create.call_count, 2)
+        models_used = {call.kwargs["model"] for call in mock_client.messages.create.call_args_list}
+        self.assertEqual(models_used, {ra.SONNET_MODEL, ra.HAIKU_MODEL})
+
+        players_by_id = {p["player_id"]: p for p in result["leagues"][0]["players"]}
+        self.assertEqual(players_by_id["100"]["reasoning"]["trend"], "DOWN")
+        self.assertEqual(players_by_id["200"]["reasoning"]["trend"], "WATCH")
+
+    def test_zero_signal_player_skips_the_api_entirely(self):
+        # make_player() defaults to no news, no injury, not IR/taxi — a
+        # healthy bench player with nothing to report.
+        player = make_player("100", "Quiet Bench Player")
+        sleeper_data = {
+            "username": "test",
+            "season": "2026",
+            "leagues": [
+                {"league_id": "L1", "league_name": "League One", "season": "2026",
+                 "players": [player]},
+            ],
+        }
+        news_data = {"news_by_player": {}}
+
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = AssertionError(
+            "should not call the API for a player with no news/injury signal"
+        )
+
+        with patch.object(ra, "get_client", return_value=mock_client), \
+             patch.object(ra, "generate_league_summary", return_value="summary"):
+            result = ra.run(sleeper_data=sleeper_data, news_data=news_data)
+
+        mock_client.messages.create.assert_not_called()
+        reasoning = result["leagues"][0]["players"][0]["reasoning"]
+        self.assertEqual(reasoning["trend"], "WATCH")
+        self.assertEqual(reasoning["fantasy_impact"], "NONE")
+
+        # It's still cached with a signal fingerprint, so a later run can
+        # tell whether the player's situation has actually changed.
+        on_disk = json.loads(self.cache_path.read_text())
+        self.assertEqual(on_disk["100"]["signal"], ra.compute_signal_fingerprint(player))
+
+    def test_zero_signal_player_with_verified_contract_still_gets_a_contract_note(self):
+        player = make_player("100", "Contracted Bench Player")
+        player["contract"] = {
+            "found": True,
+            "contract_span": "2023-2026",
+            "contract_type": "Rookie",
+        }
+        sleeper_data = {
+            "username": "test",
+            "season": "2026",
+            "leagues": [
+                {"league_id": "L1", "league_name": "League One", "season": "2026",
+                 "players": [player]},
+            ],
+        }
+        news_data = {"news_by_player": {}}
+
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = AssertionError(
+            "should not call the API for a player with no news/injury signal"
+        )
+
+        with patch.object(ra, "get_client", return_value=mock_client), \
+             patch.object(ra, "generate_league_summary", return_value="summary"):
+            result = ra.run(sleeper_data=sleeper_data, news_data=news_data)
+
+        mock_client.messages.create.assert_not_called()
+        self.assertEqual(
+            result["leagues"][0]["players"][0]["reasoning"]["contract_note"],
+            "Rookie contract, 2023-2026",
+        )
 
     def test_stale_entry_with_unchanged_signal_is_reused_without_a_call(self):
         player = make_player("100", "Quiet Player")
@@ -331,6 +509,14 @@ class RunDedupTests(unittest.TestCase):
         self.assertEqual(result["leagues"][0]["players"][0]["reasoning"]["summary"], "traded")
 
     def test_quiet_reuse_expires_past_max_age_even_with_unchanged_signal(self):
+        # reasoning_agent.run() re-derives news_items from news_by_player via
+        # match_to_roster on every call, so news has to arrive through
+        # news_data (not player["news_items"] directly) — and the cached
+        # signal must reflect that same enriched state, otherwise this test
+        # would expire the entry via zero-signal/signal-change rather than
+        # via the age check it's meant to isolate.
+        from news_agent import normalise_name, match_to_roster
+
         player = make_player("100", "Ancient Player")
         sleeper_data = {
             "username": "test",
@@ -340,7 +526,17 @@ class RunDedupTests(unittest.TestCase):
                  "players": [player]},
             ],
         }
-        news_data = {"news_by_player": {}}
+        news_data = {
+            "news_by_player": {
+                normalise_name("Ancient Player"): {
+                    "items": [{"headline": "Ancient Player news", "source": "test"}],
+                    "source_count": 1,
+                    "has_injury_flag": False,
+                    "injury_status": None,
+                }
+            }
+        }
+        enriched = match_to_roster(news_data["news_by_player"], [player])[0]
 
         too_old = (datetime.now(timezone.utc) - ra.QUIET_REUSE_MAX_AGE - timedelta(days=1)).isoformat()
         self.cache_path.write_text(json.dumps({
@@ -351,7 +547,7 @@ class RunDedupTests(unittest.TestCase):
                                "dynasty_note": None, "contract_note": None,
                                "roster_status_note": None, "flags": []},
                 "last_analyzed": too_old,
-                "signal": ra.compute_signal_fingerprint(player),
+                "signal": ra.compute_signal_fingerprint(enriched),
             }
         }))
 
@@ -370,6 +566,65 @@ class RunDedupTests(unittest.TestCase):
         # Even though the signal is unchanged, the entry is too old to reuse blindly.
         mock_client.messages.create.assert_called_once()
         self.assertEqual(result["leagues"][0]["players"][0]["reasoning"]["summary"], "refreshed")
+
+    def test_league_summary_is_cached_until_trend_picture_changes(self):
+        # Player is a fresh cache hit each run (see below), so the only thing
+        # this test exercises is whether generate_league_summary() gets
+        # called for the league — driven purely by whether the summary
+        # fingerprint (trend/injury counts + top names) has moved.
+        player = make_player("100", "Stable Player")
+        sleeper_data = {
+            "username": "test",
+            "season": "2026",
+            "leagues": [
+                {"league_id": "L1", "league_name": "League One", "season": "2026",
+                 "players": [player]},
+            ],
+        }
+        news_data = {"news_by_player": {}}
+
+        self.cache_path.write_text(json.dumps({
+            "100": {
+                "full_name": "Stable Player",
+                "reasoning": {"trend": "WATCH", "confidence": "MEDIUM", "summary": "no change",
+                               "fantasy_impact": "NONE", "recommendation": "hold",
+                               "dynasty_note": None, "contract_note": None,
+                               "roster_status_note": None, "flags": []},
+                "last_analyzed": (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+            }
+        }))
+
+        with patch.object(ra, "get_client", return_value=MagicMock()), \
+             patch.object(ra, "generate_league_summary", return_value="first summary") as mock_summary:
+            first = ra.run(sleeper_data=sleeper_data, news_data=news_data)
+
+        mock_summary.assert_called_once()
+        self.assertEqual(first["leagues"][0]["summary"], "first summary")
+
+        # Second run: same fingerprint (player's trend/reasoning unchanged
+        # and still a fresh cache hit) — summary should be reused, not
+        # regenerated, even though generate_league_summary is still mocked
+        # to return something different if called.
+        with patch.object(ra, "get_client", return_value=MagicMock()), \
+             patch.object(ra, "generate_league_summary", return_value="second summary") as mock_summary_2:
+            second = ra.run(sleeper_data=sleeper_data, news_data=news_data)
+
+        mock_summary_2.assert_not_called()
+        self.assertEqual(second["leagues"][0]["summary"], "first summary")
+
+        # Now change the player's trend (still a fresh reasoning result, but
+        # with a different trend) — the fingerprint moves, so the summary
+        # should be regenerated.
+        on_disk = json.loads(self.cache_path.read_text())
+        on_disk["100"]["reasoning"]["trend"] = "UP"
+        self.cache_path.write_text(json.dumps(on_disk))
+
+        with patch.object(ra, "get_client", return_value=MagicMock()), \
+             patch.object(ra, "generate_league_summary", return_value="third summary") as mock_summary_3:
+            third = ra.run(sleeper_data=sleeper_data, news_data=news_data)
+
+        mock_summary_3.assert_called_once()
+        self.assertEqual(third["leagues"][0]["summary"], "third summary")
 
 
 class SignalFingerprintTests(unittest.TestCase):

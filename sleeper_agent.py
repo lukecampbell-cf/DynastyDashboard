@@ -31,7 +31,7 @@ import trade_value_agent
 log = logging.getLogger(__name__)
 
 SLEEPER_BASE = "https://api.sleeper.app/v1"
-USERNAME = "lukeyboy11111"
+USERNAME = os.environ.get("SLEEPER_USERNAME", "")
 
 FANTASYPROS_HEADERS = {
     "User-Agent": (
