@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+import player_directory_agent
 import trade_value_agent
 
 log = logging.getLogger(__name__)
@@ -511,6 +512,16 @@ def run() -> dict:
     # trade_value_agent.py), reused across every dynasty league regardless
     # of scoring format (only sf/1qb split matters, decided per league below).
     rosteraudit_data = trade_value_agent.run()
+
+    # Full player directory (every fantasy-relevant NFL player + trade value,
+    # not just your rostered ones) for trade_calculator.php — refreshed at
+    # most weekly, see player_directory_agent.py. Non-fatal: a failure here
+    # shouldn't take down the whole Sleeper pipeline, since it's a side file
+    # for a standalone tool, not something reasoning_agent.py depends on.
+    try:
+        player_directory_agent.run(all_players, rosteraudit_data)
+    except Exception as e:
+        log.warning(f"Player directory build failed (non-fatal): {e}")
 
     # Step 3a: load the persisted per-player cache (bio/id details + any
     # previously-resolved contract data from contract_agent.py)

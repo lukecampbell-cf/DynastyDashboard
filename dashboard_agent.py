@@ -337,6 +337,19 @@ def render_html(reasoning_data: dict) -> str:
       color: var(--muted);
     }}
 
+    .calc-link {{
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      text-decoration: none;
+      background: var(--navy-3);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 14px;
+      transition: border-color 0.15s, color 0.15s;
+    }}
+    .calc-link:hover {{ border-color: var(--bears-orange); color: #fff; }}
+
     /* ── MAIN ── */
     .main {{
       max-width: 1400px;
@@ -742,6 +755,7 @@ def render_html(reasoning_data: dict) -> str:
       <div class="meta-pill"><strong>{total_leagues}</strong> Leagues</div>
       <div class="meta-pill"><strong>{total_players}</strong> Players tracked</div>
       <div class="meta-pill"><strong>{total_injured}</strong> Injury flags</div>
+      <a class="calc-link" href="trade_calculator.php">Trade Calculator &rarr;</a>
       <div class="updated-tag">Updated {updated_at}</div>
     </div>
   </div>

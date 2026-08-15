@@ -169,6 +169,39 @@ Which value format (`sf` vs `1qb`) applies is decided per league in
 or a second dedicated `QB` slot means Superflex, since RosterAudit's pick and player
 values swing significantly between the two (a 1QB startup values QB picks far lower).
 
+### `player_directory.json` — weekly full player + trade value directory
+
+Built by `player_directory_agent.py`, called from within `sleeper_agent.run()` right
+after `all_players` (Sleeper's full player DB, already fetched for step 1) and
+`rosteraudit_data` (trade values, both formats, already fetched above) are available.
+
+Exists for `trade_calculator.php`: `player_cache.json` only has the ~180 players
+actually on your rosters, and `trade_values.json`'s own player lists only cover
+RosterAudit's top ~390 ranked players per format — neither is a complete pool to search
+when building a hypothetical trade. This file filters Sleeper's ~12,000-player database
+down to fantasy-relevant positions (`QB`/`RB`/`WR`/`TE`/`K`/`DEF`) on an active NFL
+roster (~1,050 players) and gives each one a trade value for both formats, in three
+tiers of confidence:
+
+1. **RosterAudit's real value**, when the player is one of its ~390 ranked players per
+   format (`"source": "rosteraudit"`).
+2. Otherwise, an **estimate calibrated against RosterAudit's own value curve**: for
+   every player priced by both RosterAudit and FantasyPros, we know
+   `(fp_rank, ra_value)`; an unpriced player's value is linearly interpolated between
+   the two calibration points bracketing their own FantasyPros dynasty consensus rank
+   (`sleeper_agent.fetch_fantasypros_rankings("dynasty")`, matched by normalised name).
+   This keeps the estimate on the same numeric scale as real RosterAudit values instead
+   of an arbitrary made-up one, but it's still a derived guess — tagged
+   `"source": "fantasypros_estimate"` so callers can tell it apart from real market
+   data (`trade_calculator.php` shows it as "· est." in the UI).
+3. `value: 0, tier: "Deep Stash", "source": "unranked"` for anyone neither system has
+   any signal on at all.
+
+Refreshed at most **once a week**, matching `trade_values.json`'s own cadence — the
+only piece of this file that actually changes meaningfully week to week. A failed or
+empty build falls back to the existing stale file rather than blanking out the trade
+calculator's player pool.
+
 ---
 
 ## 2. Contract Agent (`contract_agent.py`)
@@ -311,6 +344,28 @@ needing a build step or JS framework.
 
 ---
 
+## Trade Calculator (`trade_calculator.php`)
+
+A standalone tool, separate from the pipeline above — it isn't run by `orchestrator.py`
+and doesn't call any API. It reads `player_directory.json` (every fantasy-relevant NFL
+player + trade value, see step 1's player-directory section above) and `trade_values.json`
+(for its pick tier chart) directly, server-side, on each page load, and lets you build a
+two-sided trade (any player, plus future picks) to get a fairness verdict, computed
+client-side in vanilla JS from the embedded value data. Pick values come from the same
+RosterAudit tier chart `trade_value_agent.py` already builds — a pick you add is priced
+at its tier's `min_value` for whichever format (Superflex / 1QB) is selected.
+
+Verdict is `min(sideA, sideB) / max(sideA, sideB)`, bucketed into Yes / Close Yes / Close
+No / No / Outrageously Unbalanced (thresholds are constants at the top of the PHP file).
+A trade below the "No" threshold surfaces a `mailto:` link to email a summary to the
+Bullshit Trade Association — it only opens the visitor's own mail client with a
+pre-filled draft; nothing sends automatically.
+
+Requires PHP on the host — see [SETUP.md](SETUP.md#trade-calculator-trade_calculatorphp)
+for deployment.
+
+---
+
 ## Caching summary
 
 | File | Contents | Expiry |
@@ -320,6 +375,7 @@ needing a build step or JS framework.
 | `player_cache.json` (project root) | Per-player bio/id details (name, team, age, draft year, FantasyPros id) | 2 weeks per player |
 | `player_cache.json` → `.<id>.contract` | Spotrac contract terms per player | 4 weeks per player |
 | `trade_values.json` (project root) | RosterAudit dynasty trade values + pick tier chart, sf & 1qb | 1 week |
+| `player_directory.json` (project root) | Every fantasy-relevant NFL player + trade value (sf & 1qb), for trade_calculator.php | 1 week |
 | `league_summary_cache.json` (project root) | Per-league Haiku executive summary, keyed by league_id | regenerated only when trend/injury counts change |
 | `pipeline.log` | Orchestrator run log | append-only |
 | `debug/*.json` | Intermediate stage output, only with `--debug` | per run |

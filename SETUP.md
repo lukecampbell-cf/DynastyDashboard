@@ -122,7 +122,10 @@ dynasty-dashboard/
 ├── news_agent.py         ← scrapes injury/trade news
 ├── reasoning_agent.py    ← Anthropic AI analysis
 ├── dashboard_agent.py    ← renders and writes HTML
+├── trade_calculator.php  ← standalone trade fairness tool, reads the JSON caches directly
 ├── player_cache.json     ← per-player bio + contract cache (self-building, safe to delete)
+├── trade_values.json     ← RosterAudit dynasty trade values (weekly)
+├── player_directory.json ← every fantasy-relevant NFL player + trade value (weekly, powers trade_calculator.php)
 ├── requirements.txt
 ├── .env                  ← your API key (never commit)
 ├── .env.example          ← template
@@ -132,6 +135,47 @@ dynasty-dashboard/
 ```
 
 See [README.md](README.md) for how the pipeline and each agent works.
+
+---
+
+## Trade Calculator (`trade_calculator.php`)
+
+A standalone PHP page — not part of the Python pipeline — that reads
+`player_directory.json` (every fantasy-relevant NFL player + trade value)
+and `trade_values.json` (for its pick tier chart) directly to let you build a
+two-sided trade and get a fairness verdict. It doesn't call any API or write
+to either file; it's a read-only consumer of caches the pipeline already
+maintains — `player_directory.json` is built by `player_directory_agent.py`,
+called automatically from `sleeper_agent.run()`, so there's nothing extra to
+schedule.
+
+Requires PHP (PHP-FPM behind nginx, or your host's equivalent) able to
+execute `.php` files in whichever directory you deploy it to. This project
+has otherwise only ever served static HTML, so if PHP isn't already wired up
+on your VPS you'll need to install `php-fpm` and add an nginx block for it
+(the exact steps depend on your distro/PHP version — see your OS's php-fpm
+package docs).
+
+**Simplest deployment:** drop `trade_calculator.php` in the project root,
+next to `player_directory.json` and `trade_values.json` — it defaults to
+reading them from its own directory. Add an nginx `location` block pointing at that
+directory (same `alias` pattern as the dashboard block in step 8 above), e.g.:
+
+```nginx
+location /trade-calculator.php {
+    alias /var/www/vhosts/your-domain.com/dashboard/trade_calculator.php;
+    fastcgi_pass unix:/var/run/php/php-fpm.sock;   # match your php-fpm socket
+    fastcgi_index trade_calculator.php;
+    include fastcgi_params;
+    fastcgi_param SCRIPT_FILENAME $request_filename;
+}
+```
+
+**Deploying it elsewhere** (e.g. inside the web root alongside `index.html`,
+away from the JSON caches): set the `DASHBOARD_DATA_DIR` environment
+variable to the project root's absolute path (an nginx `fastcgi_param
+DASHBOARD_DATA_DIR /path/to/dynasty-dashboard;` works), and the script will
+read the caches from there instead.
 
 ---
 
