@@ -30,11 +30,11 @@ any player RosterAudit hasn't ranked yet (very deep stashes).
 import httpx
 import json
 import logging
-import os
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+from common import is_stale, parsebot_headers
 
 log = logging.getLogger(__name__)
 
@@ -42,7 +42,6 @@ log = logging.getLogger(__name__)
 # marketplace — stable regardless of which marketplace listing id is browsed.
 PARSEBOT_SCRAPER_ID = "34e9689f-ad14-419e-8aa6-e2604592b725"
 PARSEBOT_BASE_URL = f"https://api.parse.bot/scraper/{PARSEBOT_SCRAPER_ID}"
-PARSEBOT_HEADERS = {"X-API-Key": os.environ.get("PARSE_BOT_API", "")}
 
 TRADE_VALUES_PATH = Path(__file__).resolve().parent / "trade_values.json"
 RA_FRESHNESS_SECONDS = 7 * 86400  # pull down once a week
@@ -79,7 +78,7 @@ def fetch_dynasty_rankings(format_key: str, league_size: int = LEAGUE_SIZE) -> t
             "per_page": PER_PAGE,
         }
         try:
-            r = httpx.get(f"{PARSEBOT_BASE_URL}/get_dynasty_rankings", headers=PARSEBOT_HEADERS, params=params, timeout=20)
+            r = httpx.get(f"{PARSEBOT_BASE_URL}/get_dynasty_rankings", headers=parsebot_headers(), params=params, timeout=20)
             r.raise_for_status()
             payload = r.json()
         except Exception as e:
@@ -183,12 +182,6 @@ def trade_value_label(value: Optional[float], tier_chart: list[dict]) -> Optiona
         if value >= tier["min_value"]:
             return tier["label"]
     return "Waiver / Deep Stash"
-
-
-def is_stale(path: Path, max_age_seconds: int) -> bool:
-    if not path.exists():
-        return True
-    return time.time() - path.stat().st_mtime >= max_age_seconds
 
 
 def load_trade_values() -> Optional[dict]:

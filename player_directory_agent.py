@@ -37,11 +37,11 @@ slowly enough that a week-old snapshot is fine for a trade calculator.
 
 import json
 import logging
-import time
 from pathlib import Path
 from typing import Optional
 
 import trade_value_agent
+from common import is_stale, normalise_name
 
 log = logging.getLogger(__name__)
 
@@ -54,12 +54,6 @@ DIRECTORY_FRESHNESS_SECONDS = 7 * 86400  # once a week, same cadence as RosterAu
 # team (retired, practice-squad-only, true free agents) that a dynasty
 # manager would never actually trade.
 RELEVANT_POSITIONS = {"QB", "RB", "WR", "TE", "K", "DEF"}
-
-
-def is_stale(path: Path, max_age_seconds: int) -> bool:
-    if not path.exists():
-        return True
-    return time.time() - path.stat().st_mtime >= max_age_seconds
 
 
 def load_player_directory() -> Optional[dict]:
@@ -149,8 +143,6 @@ def build_player_directory(all_players: dict, rosteraudit_data: dict, fp_ranking
     only falling all the way back to 0 / "Deep Stash" when neither system
     has any signal on the player at all.
     """
-    from sleeper_agent import normalise_name
-
     formats = (rosteraudit_data or {}).get("formats", {})
     ra_players = {
         fmt: (formats.get(fmt) or {}).get("players", {})

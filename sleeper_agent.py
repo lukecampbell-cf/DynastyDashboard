@@ -26,21 +26,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+from common import USER_AGENT, normalise_name
 import player_directory_agent
 import trade_value_agent
 
 log = logging.getLogger(__name__)
 
 SLEEPER_BASE = "https://api.sleeper.app/v1"
-USERNAME = os.environ.get("SLEEPER_USERNAME", "")
 
-FANTASYPROS_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-}
+FANTASYPROS_HEADERS = {"User-Agent": USER_AGENT}
 
 # FantasyPros doesn't split dynasty rankings by scoring format — dynasty value
 # is dominated by long-term outlook, so a single blended dynasty page covers
@@ -197,16 +191,6 @@ def get_nfl_players() -> dict:
     except Exception as e:
         log.error(f"Failed to fetch player database: {e}")
         return {}
-
-
-def normalise_name(name: str) -> str:
-    """Normalise a player name for matching across Sleeper and FantasyPros."""
-    if not name:
-        return ""
-    name = name.strip().lower()
-    name = re.sub(r"\b(jr|sr|ii|iii|iv)\b\.?", "", name)
-    name = re.sub(r"[^a-z\s]", "", name)
-    return " ".join(name.split())
 
 
 def determine_ranking_format(league_settings: dict, scoring_settings: dict) -> str:
@@ -477,15 +461,16 @@ def run() -> dict:
     Season is resolved dynamically — no hardcoding required.
     Returns a structured summary of all leagues, the user's rosters, and player details.
     """
+    username = os.environ.get("SLEEPER_USERNAME", "")
     result = {
-        "username": USERNAME,
+        "username": username,
         "season": None,
         "user": None,
         "leagues": [],
     }
 
     # Step 1: Resolve user
-    user = get_user(USERNAME)
+    user = get_user(username)
     if not user:
         log.error("Cannot proceed without valid user.")
         return result

@@ -16,8 +16,6 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
-API_KEY = os.environ.get("DASHBOARD_KEY")
-
 SONNET_MODEL = "claude-sonnet-4-6"
 HAIKU_MODEL = "claude-haiku-4-5"
 
@@ -71,12 +69,13 @@ BATCH_SIZE = 20
 
 
 def get_client() -> anthropic.Anthropic:
-    if not API_KEY:
+    api_key = os.environ.get("DASHBOARD_KEY")
+    if not api_key:
         raise EnvironmentError(
             "DASHBOARD_KEY environment variable not set. "
             "Add it to your .env file or export it in your shell."
         )
-    return anthropic.Anthropic(api_key=API_KEY)
+    return anthropic.Anthropic(api_key=api_key)
 
 
 def load_analysis_cache() -> dict:

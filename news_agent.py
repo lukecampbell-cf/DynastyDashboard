@@ -11,7 +11,6 @@ Cross-references sources and returns structured news per player.
 
 import httpx
 import logging
-import os
 import re
 import time
 from datetime import datetime, timezone
@@ -19,14 +18,12 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from typing import Optional
 
+from common import USER_AGENT, normalise_name, parsebot_headers
+
 log = logging.getLogger(__name__)
 
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": USER_AGENT,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5",
 }
@@ -35,8 +32,7 @@ HEADERS = {
 # which is why its news feed goes through Parse Bot instead of HTML scraping
 # (https://parse.bot/scrapers/1682503b-990a-4f2a-b44a-c95c30c1d08f). Auth is
 # a Parse Bot API key (PARSE_BOT_API in .env), shared by every Parse Bot call
-# in this file.
-PARSEBOT_HEADERS = {"X-API-Key": os.environ.get("PARSE_BOT_API", "")}
+# in this file — see common.parsebot_headers().
 
 ESPN_SCRAPER_ID = "1682503b-990a-4f2a-b44a-c95c30c1d08f"
 ESPN_BASE_URL = f"https://api.parse.bot/scraper/{ESPN_SCRAPER_ID}"
@@ -160,7 +156,7 @@ def scrape_fantasypros_news() -> tuple[list[dict], Optional[str]]:
     """
     log.info("Fetching FantasyPros player news via Parse Bot")
     try:
-        r = httpx.get(f"{FANTASYPROS_BASE_URL}/get_player_news", headers=PARSEBOT_HEADERS, timeout=20)
+        r = httpx.get(f"{FANTASYPROS_BASE_URL}/get_player_news", headers=parsebot_headers(), timeout=20)
         r.raise_for_status()
         payload = r.json()
     except Exception as e:
@@ -203,7 +199,7 @@ def get_current_nfl_week() -> Optional[dict]:
     which is keyed by week number rather than a live page scrape.
     """
     try:
-        r = httpx.get(f"{NFL_API_BASE_URL}/get_current_week", headers=PARSEBOT_HEADERS, timeout=20)
+        r = httpx.get(f"{NFL_API_BASE_URL}/get_current_week", headers=parsebot_headers(), timeout=20)
         r.raise_for_status()
         payload = r.json()
     except Exception as e:
@@ -243,7 +239,7 @@ def scrape_fantasypros_injuries() -> tuple[list[dict], Optional[str]]:
     try:
         r = httpx.get(
             f"{FANTASYPROS_BASE_URL}/get_injuries",
-            headers=PARSEBOT_HEADERS,
+            headers=parsebot_headers(),
             params={"week": fp_week, "year": str(season)},
             timeout=20,
         )
@@ -304,7 +300,7 @@ def scrape_espn_nfl(limit: int = 50) -> tuple[list[dict], Optional[str]]:
     try:
         r = httpx.post(
             f"{ESPN_BASE_URL}/get_news",
-            headers=PARSEBOT_HEADERS,
+            headers=parsebot_headers(),
             json={"league": "nfl", "limit": limit},
             timeout=20,
         )
@@ -450,18 +446,6 @@ def scrape_cbssports_nfl() -> tuple[list[dict], Optional[str]]:
 
     log.info(f"CBS Sports NFL: {len(news_items)} items found")
     return news_items, None
-
-
-def normalise_name(name: str) -> str:
-    """Normalise player name for fuzzy matching across sources."""
-    if not name:
-        return ""
-    name = name.strip().lower()
-    # Remove suffixes
-    name = re.sub(r"\b(jr|sr|ii|iii|iv)\b\.?", "", name)
-    # Remove punctuation
-    name = re.sub(r"[^a-z\s]", "", name)
-    return " ".join(name.split())
 
 
 def cross_reference(all_items: list[dict]) -> dict:

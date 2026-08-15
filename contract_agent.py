@@ -18,12 +18,12 @@ JSON. Auth is a Parse Bot API key (PARSE_BOT_API in .env).
 
 import httpx
 import logging
-import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from common import parsebot_headers
 from sleeper_agent import (
     PLAYER_CACHE_PATH,
     is_stale,
@@ -38,7 +38,6 @@ log = logging.getLogger(__name__)
 # marketplace — stable regardless of which marketplace listing id is browsed.
 PARSEBOT_SCRAPER_ID = "1063a484-f52f-4db5-a50f-b26705848e2f"
 PARSEBOT_BASE_URL = f"https://api.parse.bot/scraper/{PARSEBOT_SCRAPER_ID}"
-PARSEBOT_HEADERS = {"X-API-Key": os.environ.get("PARSE_BOT_API", "")}
 
 CONTRACT_FRESHNESS = timedelta(days=28)
 
@@ -71,7 +70,7 @@ def search_spotrac(full_name: str) -> list[dict]:
     try:
         r = httpx.get(
             f"{PARSEBOT_BASE_URL}/search_players",
-            headers=PARSEBOT_HEADERS,
+            headers=parsebot_headers(),
             params={"query": full_name},
             timeout=20,
         )
@@ -141,7 +140,7 @@ def fetch_contract_details(spotrac_id: str) -> Optional[dict]:
     try:
         r = httpx.get(
             f"{PARSEBOT_BASE_URL}/get_player_contract",
-            headers=PARSEBOT_HEADERS,
+            headers=parsebot_headers(),
             params={"player_id": spotrac_id},
             timeout=20,
         )
