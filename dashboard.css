@@ -151,6 +151,31 @@ body {
   color: #fff;
 }
 
+/* ── GLOBAL TRENDS ── */
+.global-trends {
+  margin-bottom: 32px;
+}
+
+.global-trends-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #fff;
+  margin-bottom: 14px;
+}
+
+.global-trends-columns {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+@media (max-width: 900px) {
+  .global-trends-columns { grid-template-columns: 1fr; }
+}
+
 /* ── LEAGUE SECTION ── */
 .league-details {
   margin-bottom: 24px;

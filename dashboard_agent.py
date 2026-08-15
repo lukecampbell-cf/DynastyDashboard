@@ -299,6 +299,44 @@ def render_league_nav(leagues: list) -> str:
 </nav>"""
 
 
+# Cap on cards shown per column in the cross-league trends panel — a manager
+# in many leagues could otherwise see dozens of cards (deduped by name, but
+# still one per distinct player) before ever reaching their first league
+# section below. Each league's own trending_up/trending_down still shows
+# everyone; this is just the headline cross-league digest.
+GLOBAL_TRENDS_MAX = 6
+
+
+def render_global_trends_section(global_up: list, global_down: list) -> str:
+    """
+    Cross-league "trending across all your leagues" panel, from
+    reasoning_agent.py's global_trends — the same player dicts (and cards)
+    used in each league's own trending columns, deduped by full_name and
+    already sorted by confidence before being merged. Omitted entirely when
+    there's nothing to show (e.g. no league data yet).
+    """
+    if not global_up and not global_down:
+        return ""
+
+    up_cards = "\n".join(render_player_card(p) for p in global_up[:GLOBAL_TRENDS_MAX])
+    down_cards = "\n".join(render_player_card(p) for p in global_down[:GLOBAL_TRENDS_MAX])
+
+    return f"""
+  <section class="global-trends">
+    <h2 class="global-trends-title">📊 Trending Across All Leagues</h2>
+    <div class="global-trends-columns">
+      <div class="trend-col col-up">
+        <h3 class="col-header up">▲ Trending Up</h3>
+        {up_cards if up_cards else '<p class="no-data">No players trending up</p>'}
+      </div>
+      <div class="trend-col col-down">
+        <h3 class="col-header down">▼ Trending Down</h3>
+        {down_cards if down_cards else '<p class="no-data">No players trending down</p>'}
+      </div>
+    </div>
+  </section>"""
+
+
 def render_html(reasoning_data: dict) -> str:
     """Render the full HTML dashboard."""
     username = esc(reasoning_data.get("username", os.environ.get("SLEEPER_USERNAME", "your_username")))
@@ -313,6 +351,7 @@ def render_html(reasoning_data: dict) -> str:
 
     global_up = reasoning_data.get("global_trends", {}).get("trending_up", [])
     global_down = reasoning_data.get("global_trends", {}).get("trending_down", [])
+    global_trends_section = render_global_trends_section(global_up, global_down)
 
     total_leagues = len(leagues)
     total_players = sum(l.get("stats", {}).get("total", 0) for l in leagues)
@@ -353,6 +392,7 @@ def render_html(reasoning_data: dict) -> str:
 {league_nav}
 
 <main class="main">
+  {global_trends_section}
   {league_sections if league_sections else '<p style="color:var(--muted);text-align:center;padding:60px 0;">No league data available. Run the pipeline to populate.</p>'}
 </main>
 
