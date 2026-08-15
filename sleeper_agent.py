@@ -533,7 +533,15 @@ def run() -> dict:
             log.warning(f"Could not find roster for user in league {league_name}")
             continue
 
-        # Resolve player IDs to full player data
+        # Resolve player IDs to full player data. Sleeper's "players" list is
+        # the full roster — reserve (IR) and taxi squad players are already
+        # included in it, not a separate addition — "starters"/"reserve"/
+        # "taxi" are just status subsets of "players" used below to flag
+        # is_starter/is_ir/is_taxi. Adding reserve/taxi on top of "players"
+        # here previously double-counted them (see the duplicate-player-IDs
+        # fix); if a future roster ever showed a reserve/taxi player missing
+        # from "players", that'd be a genuine Sleeper API inconsistency, not
+        # something to work around by re-adding them here.
         player_ids = my_roster.get("players") or []
         starters = my_roster.get("starters") or []
         taxi = my_roster.get("taxi") or []
