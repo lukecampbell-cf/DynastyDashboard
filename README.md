@@ -378,7 +378,33 @@ for deployment.
 | `player_directory.json` (project root) | Every fantasy-relevant NFL player + trade value (sf & 1qb), for trade_calculator.php | 1 week |
 | `league_summary_cache.json` (project root) | Per-league Haiku executive summary, keyed by league_id | regenerated only when trend/injury counts change |
 | `pipeline.log` | Orchestrator run log | append-only |
+| `health.json` (project root) | Last run status, per-step (and per-news-source) errors, stale-cache flags | rewritten every run |
 | `debug/*.json` | Intermediate stage output, only with `--debug` | per run |
+
+---
+
+## Pipeline Health (`health_agent.py`)
+
+`orchestrator.py` writes `health.json` at the end of every `run_pipeline()` call — success
+*or* failure, on every exit path — via `health_agent.record_run(steps, success)`. It tracks:
+
+- **`last_run_at` / `last_run_success`** — this run's outcome.
+- **`last_success_at`** — only advances on an actual success, so a run of failures doesn't
+  erase how long it's actually been since the dashboard last updated.
+- **`steps`** — per-step ok/error, plus a `sources` breakdown under `news` (one entry per
+  scraper — Rotowire, FantasyPros news/injuries, ESPN, NFL.com, CBS Sports — each with its
+  own `ok`/`error`/`items` count). A single "news step failed" flag hides which of six
+  independent sources is actually broken; this doesn't.
+- **`stale_caches`** — `player_cache.json`, `trade_values.json`, `player_directory.json`,
+  and `player_analysis_cache.json` checked against their own freshness windows (mirroring
+  the constants each agent already enforces on itself). A cache going stale here means
+  something's been silently broken for days — an expired API key, a changed selector, a
+  dead cron job — not just "no news today."
+- **`overall_ok`** — `last_run_success` AND no stale caches. Point an uptime monitor at
+  this file (or a small wrapper reading it) if you want alerting on pipeline health.
+
+Read it directly as JSON, or run `python health_agent.py` for a human-readable summary of
+the last recorded run.
 
 ---
 

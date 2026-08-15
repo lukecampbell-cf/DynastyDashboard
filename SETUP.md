@@ -122,10 +122,12 @@ dynasty-dashboard/
 ├── news_agent.py         ← scrapes injury/trade news
 ├── reasoning_agent.py    ← Anthropic AI analysis
 ├── dashboard_agent.py    ← renders and writes HTML
+├── health_agent.py       ← writes health.json every run; `python health_agent.py` for a summary
 ├── trade_calculator.php  ← standalone trade fairness tool, reads the JSON caches directly
 ├── player_cache.json     ← per-player bio + contract cache (self-building, safe to delete)
 ├── trade_values.json     ← RosterAudit dynasty trade values (weekly)
 ├── player_directory.json ← every fantasy-relevant NFL player + trade value (weekly, powers trade_calculator.php)
+├── health.json            ← last run status, per-step/per-source errors, stale-cache flags
 ├── requirements.txt
 ├── .env                  ← your API key (never commit)
 ├── .env.example          ← template
@@ -192,6 +194,10 @@ read the caches from there instead.
 
 **News scraping returns 0 items**
 → Sites may have changed structure. Check pipeline.log for specific errors. The reasoning agent will still run with Sleeper data alone.
+→ Or run `python health_agent.py` — it'll name exactly which of the six news sources is failing and why, instead of one blanket "news step" status.
+
+**Not sure if the pipeline is actually healthy**
+→ Run `python health_agent.py` for a summary: last run status, per-step errors, per-news-source errors, and which caches have gone stale. `health.json` is rewritten every run (success or failure) so it never reflects a status older than your last cron tick.
 
 **Contract lookups or ESPN news all come back empty**
 → Check PARSE_BOT_API is set in .env and hasn't hit its Parse Bot rate/credit limit (check pipeline.log for 401/429 responses from api.parse.bot).

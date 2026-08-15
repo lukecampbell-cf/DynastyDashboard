@@ -33,6 +33,7 @@ import contract_agent
 import news_agent
 import reasoning_agent
 import dashboard_agent
+import health_agent
 
 logging.basicConfig(
     level=logging.INFO,
@@ -78,12 +79,19 @@ def run_pipeline(dry_run: bool = False) -> bool:
     Execute the full agent pipeline.
     Season is resolved dynamically by the Sleeper agent.
     Returns True on success, False on failure.
+
+    Tracks a per-step ok/error record in `steps` as it goes, and always
+    writes health_agent.record_run(steps, ...) before returning — on every
+    exit path, not just the success one, so a failed run still updates
+    health.json instead of leaving it frozen at the last good state.
     """
     started_at = time.time()
     log.info("=" * 60)
     log.info(f"Pipeline starting — season will be resolved dynamically, dry_run={dry_run}")
     log.info(f"Time: {datetime.now(timezone.utc).isoformat()}")
     log.info("=" * 60)
+
+    steps: dict = {}
 
     # ── STEP 1: Sleeper Agent ──────────────────────────────────
     log.info("STEP 1/5: Sleeper Agent")
@@ -96,8 +104,11 @@ def run_pipeline(dry_run: bool = False) -> bool:
         else:
             total_players = sum(len(l.get("players", [])) for l in sleeper_data["leagues"])
             log.info(f"Sleeper: season={season}, {league_count} league(s), {total_players} total players")
+        steps["sleeper"] = {"ok": True, "error": None}
     except Exception as e:
         log.error(f"Sleeper agent failed: {e}")
+        steps["sleeper"] = {"ok": False, "error": str(e)}
+        health_agent.record_run(steps, False)
         return False
 
     # Collect all players across leagues once, deduped by Sleeper player_id —
@@ -120,8 +131,10 @@ def run_pipeline(dry_run: bool = False) -> bool:
         for league in sleeper_data.get("leagues", []):
             for p in league.get("players", []):
                 p["contract"] = contracts_by_pid.get(str(p.get("player_id")))
+        steps["contract"] = {"ok": True, "error": None}
     except Exception as e:
         log.error(f"Contract agent failed: {e}")
+        steps["contract"] = {"ok": False, "error": str(e)}
         # Non-fatal — reasoning falls back to hedged general-knowledge notes
         log.warning("Continuing pipeline without fresh contract data.")
 
@@ -130,14 +143,20 @@ def run_pipeline(dry_run: bool = False) -> bool:
     try:
         news_data = news_agent.run(roster_players=all_players)
         log.info(f"News: {news_data['total_items']} items, {news_data['unique_players']} unique players")
+        failed_sources = {k: v for k, v in news_data.get("source_status", {}).items() if not v["ok"]}
+        if failed_sources:
+            log.warning(f"News sources with errors this run: {list(failed_sources)}")
+        steps["news"] = {"ok": True, "error": None, "sources": news_data.get("source_status", {})}
     except Exception as e:
         log.error(f"News agent failed: {e}")
+        steps["news"] = {"ok": False, "error": str(e), "sources": {}}
         # Non-fatal — continue with empty news
         news_data = {
             "total_items": 0,
             "unique_players": 0,
             "news_by_player": {},
             "all_items": [],
+            "source_status": {},
             "scraped_at": datetime.now(timezone.utc).isoformat(),
         }
         log.warning("Continuing pipeline with empty news data.")
@@ -151,8 +170,11 @@ def run_pipeline(dry_run: bool = False) -> bool:
             for l in reasoning_data.get("leagues", [])
         )
         log.info(f"Reasoning: {total_analysed} players analysed across {len(reasoning_data['leagues'])} league(s)")
+        steps["reasoning"] = {"ok": True, "error": None}
     except Exception as e:
         log.error(f"Reasoning agent failed: {e}")
+        steps["reasoning"] = {"ok": False, "error": str(e)}
+        health_agent.record_run(steps, False)
         return False
 
     # ── STEP 5: Dashboard Agent ────────────────────────────────
@@ -160,14 +182,18 @@ def run_pipeline(dry_run: bool = False) -> bool:
     output_path = DRY_RUN_PATH if dry_run else OUTPUT_PATH
     try:
         success = dashboard_agent.run(reasoning_data=reasoning_data, output_path=output_path)
+        steps["dashboard"] = {"ok": success, "error": None if success else "write_dashboard failed"}
         if success:
             elapsed = round(time.time() - started_at, 1)
             log.info(f"Pipeline complete in {elapsed}s → {output_path}")
             if dry_run:
                 log.info(f"DRY RUN: Open file://{output_path} in your browser to preview.")
+        health_agent.record_run(steps, success)
         return success
     except Exception as e:
         log.error(f"Dashboard agent failed: {e}")
+        steps["dashboard"] = {"ok": False, "error": str(e)}
+        health_agent.record_run(steps, False)
         return False
 
 

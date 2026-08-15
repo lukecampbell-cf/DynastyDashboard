@@ -9,12 +9,28 @@ import logging
 import os
 import shutil
 from datetime import datetime, timezone
+from html import escape
 from pathlib import Path
 from typing import Optional
 
 log = logging.getLogger(__name__)
 
 OUTPUT_PATH = os.environ.get("DASHBOARD_OUTPUT_PATH", "")
+
+
+def esc(value) -> str:
+    """
+    HTML-escape a value before splicing it into the template. Applied
+    uniformly to every field that isn't a hardcoded literal — most of this
+    data (news-derived Claude output, Sleeper league/player names, RosterAudit
+    tier labels) ultimately traces back to a third party, so nothing here is
+    trusted enough to interpolate raw. quote=True (the default) also escapes
+    `"`/`'`, which matters for values placed inside a double-quoted HTML
+    attribute (e.g. class="pos-{position}"), not just text content.
+    """
+    if value is None:
+        return ""
+    return escape(str(value), quote=True)
 
 
 def trend_icon(trend: str) -> str:
@@ -29,7 +45,7 @@ def trend_class(trend: str) -> str:
 
 def confidence_badge(confidence: str) -> str:
     classes = {"HIGH": "badge-high", "MEDIUM": "badge-medium", "LOW": "badge-low"}
-    return f'<span class="badge {classes.get(confidence, "badge-low")}">{confidence}</span>'
+    return f'<span class="badge {classes.get(confidence, "badge-low")}">{esc(confidence)}</span>'
 
 
 def flag_chips(flags: list) -> str:
@@ -43,8 +59,69 @@ def flag_chips(flags: list) -> str:
         "bust_risk": "⚠️ Bust Risk",
         "target_share": "🎯 Target Share",
     }
-    chips = [f'<span class="flag-chip">{label_map.get(f, f)}</span>' for f in flags]
+    chips = [f'<span class="flag-chip">{esc(label_map.get(f, f))}</span>' for f in flags]
     return "".join(chips)
+
+
+def safe_url(url) -> Optional[str]:
+    """
+    Only http(s) URLs are allowed through as a clickable href. HTML-escaping
+    (esc()) neutralizes tag/attribute breakout, but it does NOT neutralize a
+    dangerous URI *scheme* — `javascript:alert(1)` escapes to itself (no
+    `<`/`>`/`"`/`'` involved) and the browser still executes it on click.
+    Scheme-allowlisting is a separate, necessary check for any URL that
+    ultimately comes from a third party (every url here is scraped news).
+    """
+    if not url or not isinstance(url, str):
+        return None
+    url = url.strip()
+    if url.lower().startswith(("http://", "https://")):
+        return url
+    return None
+
+
+SOURCE_LABELS = {
+    "rotowire": "Rotowire",
+    "fantasypros": "FantasyPros",
+    "fantasypros_injuries": "FantasyPros Injuries",
+    "espn": "ESPN",
+    "nfl_com": "NFL.com",
+    "cbssports": "CBS Sports",
+}
+
+
+def source_attribution_html(news_items: list) -> str:
+    """
+    One chip per distinct source that fed this player's reasoning, linking
+    to that source's article when a URL is available (fantasypros_injuries
+    items have none — it's a structured designation, not an article) — the
+    point of this line is letting you jump straight to the actual news that
+    drove Claude's summary, not just seeing a bare count of how many
+    sources mentioned the player.
+    """
+    if not news_items:
+        return ""
+    seen = {}
+    for item in news_items:
+        src = item.get("source")
+        if src and src not in seen:
+            seen[src] = item
+
+    chips = []
+    for src, item in seen.items():
+        label = esc(SOURCE_LABELS.get(src, src))
+        headline = item.get("headline") or ""
+        title_attr = f' title="{esc(headline)}"' if headline else ""
+        url = safe_url(item.get("url"))
+        if url:
+            chips.append(
+                f'<a class="source-chip" href="{esc(url)}" target="_blank" '
+                f'rel="noopener noreferrer"{title_attr}>{label}</a>'
+            )
+        else:
+            chips.append(f'<span class="source-chip no-link"{title_attr}>{label}</span>')
+
+    return f'<div class="source-attribution">📎 <span class="source-attribution-label">Sources:</span> {"".join(chips)}</div>'
 
 
 def render_player_card(player: dict) -> str:
@@ -67,6 +144,7 @@ def render_player_card(player: dict) -> str:
     is_taxi = player.get("is_taxi", False)
     is_starter = player.get("is_starter", False)
     source_count = player.get("source_count", 0)
+    news_items = player.get("news_items", [])
     designation = player.get("roster_designation", "")
     trade_value = player.get("trade_value", "")
 
@@ -80,59 +158,64 @@ def render_player_card(player: dict) -> str:
 
     injury_html = ""
     if injury_status:
-        injury_html = f'<span class="injury-pill">{injury_status}</span>'
+        injury_html = f'<span class="injury-pill">{esc(injury_status)}</span>'
 
     designation_html = ""
     if designation:
-        designation_html = f'<span class="designation-tag">{designation}</span>'
+        designation_html = f'<span class="designation-tag">{esc(designation)}</span>'
 
     sources_html = ""
     if source_count > 0:
-        sources_html = f'<span class="source-count">{source_count} source{"s" if source_count != 1 else ""}</span>'
+        sources_html = f'<span class="source-count">{esc(source_count)} source{"s" if source_count != 1 else ""}</span>'
 
     trade_value_html = ""
     if trade_value:
-        trade_value_html = f'<span class="trade-value-tag">💰 {trade_value}</span>'
+        trade_value_html = f'<span class="trade-value-tag">💰 {esc(trade_value)}</span>'
 
     dynasty_html = ""
     if dynasty_note:
-        dynasty_html = f'<div class="dynasty-note">📈 {dynasty_note}</div>'
+        dynasty_html = f'<div class="dynasty-note">📈 {esc(dynasty_note)}</div>'
 
     contract_html = ""
     if contract_note:
-        contract_html = f'<div class="contract-note">📄 {contract_note}</div>'
+        contract_html = f'<div class="contract-note">📄 {esc(contract_note)}</div>'
 
     roster_status_html = ""
     if roster_status_note:
-        roster_status_html = f'<div class="roster-status-note">🧩 {roster_status_note}</div>'
+        roster_status_html = f'<div class="roster-status-note">🧩 {esc(roster_status_note)}</div>'
+
+    source_attribution = source_attribution_html(news_items)
+
+    position_esc = esc(position)
 
     return f"""
     <div class="player-card {trend_class(trend)}">
       <div class="card-header">
         <div class="player-meta">
-          <span class="position-tag pos-{position.lower()}">{position}</span>
+          <span class="position-tag pos-{position_esc.lower()}">{position_esc}</span>
           {designation_html}
-          <span class="player-name">{name}</span>
-          <span class="team-tag">{team}</span>
+          <span class="player-name">{esc(name)}</span>
+          <span class="team-tag">{esc(team)}</span>
           {"".join(roster_tags)}
           {injury_html}
         </div>
         <div class="card-right">
           {confidence_badge(confidence)}
-          <span class="trend-badge {trend_class(trend)}">{trend_icon(trend)} {trend}</span>
+          <span class="trend-badge {trend_class(trend)}">{trend_icon(trend)} {esc(trend)}</span>
         </div>
       </div>
       <div class="card-body">
-        <p class="summary">{summary}</p>
-        <div class="recommendation">💡 {recommendation}</div>
+        <p class="summary">{esc(summary)}</p>
+        <div class="recommendation">💡 {esc(recommendation)}</div>
         {dynasty_html}
         {contract_html}
         {roster_status_html}
+        {source_attribution}
         <div class="card-footer">
           {flag_chips(flags)}
           {trade_value_html}
           {sources_html}
-          <span class="age-tag">Age {age}</span>
+          <span class="age-tag">Age {esc(age)}</span>
         </div>
       </div>
     </div>"""
@@ -140,7 +223,7 @@ def render_player_card(player: dict) -> str:
 
 def league_slug(league: dict) -> str:
     """Stable per-league anchor id, used to link the nav bar to its <details> section."""
-    return f"league-{league.get('league_id', 'unknown')}"
+    return f"league-{esc(league.get('league_id', 'unknown'))}"
 
 
 def render_league_section(league: dict, is_first: bool = False) -> str:
@@ -163,19 +246,19 @@ def render_league_section(league: dict, is_first: bool = False) -> str:
     <summary class="league-header">
       <div class="league-title-block">
         <span class="toggle-arrow">▸</span>
-        <h2 class="league-name">{name}</h2>
-        <span class="season-tag">{season}</span>
+        <h2 class="league-name">{esc(name)}</h2>
+        <span class="season-tag">{esc(season)}</span>
       </div>
       <div class="league-stats">
-        <div class="stat-pill up">▲ {stats.get('trending_up', 0)} Up</div>
-        <div class="stat-pill down">▼ {stats.get('trending_down', 0)} Down</div>
-        <div class="stat-pill watch">◆ {stats.get('watch', 0)} Watch</div>
-        <div class="stat-pill injury">🩹 {stats.get('injured', 0)} Injured</div>
+        <div class="stat-pill up">▲ {esc(stats.get('trending_up', 0))} Up</div>
+        <div class="stat-pill down">▼ {esc(stats.get('trending_down', 0))} Down</div>
+        <div class="stat-pill watch">◆ {esc(stats.get('watch', 0))} Watch</div>
+        <div class="stat-pill injury">🩹 {esc(stats.get('injured', 0))} Injured</div>
       </div>
     </summary>
 
     <div class="league-body">
-      {f'<div class="league-summary"><p>{summary}</p></div>' if summary else ''}
+      {f'<div class="league-summary"><p>{esc(summary)}</p></div>' if summary else ''}
 
       <div class="trend-columns">
         <div class="trend-col col-up">
@@ -200,7 +283,7 @@ def render_league_nav(leagues: list) -> str:
     if not leagues:
         return ""
     links = "\n".join(
-        f'<a href="#{league_slug(l)}" class="league-nav-link" data-target="{league_slug(l)}">{l["league_name"]}</a>'
+        f'<a href="#{league_slug(l)}" class="league-nav-link" data-target="{league_slug(l)}">{esc(l["league_name"])}</a>'
         for l in leagues
     )
     return f"""
@@ -211,8 +294,8 @@ def render_league_nav(leagues: list) -> str:
 
 def render_html(reasoning_data: dict) -> str:
     """Render the full HTML dashboard."""
-    username = reasoning_data.get("username", os.environ.get("SLEEPER_USERNAME", "your_username"))
-    season = reasoning_data.get("season", "2025")
+    username = esc(reasoning_data.get("username", os.environ.get("SLEEPER_USERNAME", "your_username")))
+    season = esc(reasoning_data.get("season", "2025"))
     leagues = reasoning_data.get("leagues", [])
     updated_at = datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M UTC")
 
@@ -689,6 +772,41 @@ def render_html(reasoning_data: dict) -> str:
       color: #fcd34d;
       margin-bottom: 8px;
       font-style: italic;
+    }}
+
+    .source-attribution {{
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      font-size: 11px;
+      margin-bottom: 8px;
+    }}
+
+    .source-attribution-label {{
+      color: var(--muted);
+    }}
+
+    .source-chip {{
+      font-size: 10px;
+      font-weight: 600;
+      background: var(--navy-4);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 2px 8px;
+      color: #93c5fd;
+      text-decoration: none;
+      transition: border-color 0.15s, color 0.15s;
+    }}
+
+    a.source-chip:hover {{
+      border-color: var(--bears-orange);
+      color: #fff;
+    }}
+
+    .source-chip.no-link {{
+      color: var(--muted);
+      cursor: default;
     }}
 
     .card-footer {{

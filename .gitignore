@@ -6,5 +6,6 @@ player_cache.json
 player_id_map.json
 trade_values.json
 player_directory.json
+health.json
 cron.log
 dashboard.zip
