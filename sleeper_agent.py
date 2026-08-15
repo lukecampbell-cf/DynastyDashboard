@@ -520,7 +520,6 @@ def run() -> dict:
         log.info(f"Processing league: {league_name} ({league_id})")
 
         rosters = get_rosters(league_id)
-        league_users = get_users_in_league(league_id)
         league_info = get_league_info(league_id)
 
         # Find the user's roster
@@ -654,7 +653,6 @@ def run() -> dict:
 
 
 if __name__ == "__main__":
-    import json
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [SLEEPER] %(message)s")
     data = run()
     print(json.dumps(data, indent=2))

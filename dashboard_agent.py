@@ -4,7 +4,6 @@ Renders the HTML fantasy dashboard from reasoning agent output
 and writes it to the configured web root.
 """
 
-import json
 import logging
 import os
 import shutil

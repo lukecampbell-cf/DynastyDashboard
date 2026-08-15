@@ -573,11 +573,10 @@ def run(roster_players: list[dict] = None) -> dict:
 
 
 if __name__ == "__main__":
-    import json
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [NEWS] %(message)s")
     data = run()
     # Print summary
-    print(f"\nNews agent summary:")
+    print("\nNews agent summary:")
     print(f"  Total items: {data['total_items']}")
     print(f"  Unique players: {data['unique_players']}")
     print(f"  Players with injury flags: {sum(1 for p in data['news_by_player'].values() if p['has_injury_flag'])}")

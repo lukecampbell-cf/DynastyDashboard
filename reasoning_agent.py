@@ -683,7 +683,7 @@ def run(sleeper_data: dict, news_data: dict) -> dict:
     # only needs to be analysed once. The first league to see a given pid
     # supplies the snapshot (roster flags etc.) used for its analysis, same
     # as the old per-run cache dedup behaviour.
-    from news_agent import match_to_roster, normalise_name
+    from news_agent import match_to_roster
 
     league_players: dict[str, list[dict]] = {}
     unique_players: dict[str, dict] = {}
