@@ -550,7 +550,7 @@ def run() -> dict:
             continue
 
         # Resolve player IDs to full player data
-        player_ids = (my_roster.get("players") or []) + (my_roster.get("reserve") or [])
+        player_ids = my_roster.get("players") or []
         starters = my_roster.get("starters") or []
         taxi = my_roster.get("taxi") or []
 
