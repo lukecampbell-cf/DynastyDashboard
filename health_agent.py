@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from schemas import CacheStatus, HealthRecord, StepStatus
+
 log = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -64,7 +66,7 @@ def load_health() -> dict:
         return {}
 
 
-def check_stale_caches() -> list[dict]:
+def check_stale_caches() -> list[CacheStatus]:
     """
     One entry per tracked cache: whether it exists, its age, and whether
     it's past its own freshness threshold. A missing file is always
@@ -72,7 +74,7 @@ def check_stale_caches() -> list[dict]:
     just for different reasons, and the `exists` flag lets a caller tell
     them apart.
     """
-    results = []
+    results: list[CacheStatus] = []
     now = time.time()
     for name, path, threshold_seconds in TRACKED_CACHES:
         if not path.exists():
@@ -88,7 +90,7 @@ def check_stale_caches() -> list[dict]:
     return results
 
 
-def record_run(steps: dict, pipeline_success: bool) -> dict:
+def record_run(steps: dict[str, StepStatus], pipeline_success: bool) -> HealthRecord:
     """
     Write health.json for this run.
 
@@ -105,15 +107,16 @@ def record_run(steps: dict, pipeline_success: bool) -> dict:
     """
     previous = load_health()
     now_iso = datetime.now(timezone.utc).isoformat()
+    stale_caches = check_stale_caches()
 
-    health = {
+    health: HealthRecord = {
         "last_run_at": now_iso,
         "last_run_success": pipeline_success,
         "last_success_at": now_iso if pipeline_success else previous.get("last_success_at"),
         "steps": steps,
-        "stale_caches": check_stale_caches(),
+        "stale_caches": stale_caches,
+        "overall_ok": pipeline_success and not any(c["stale"] for c in stale_caches),
     }
-    health["overall_ok"] = pipeline_success and not any(c["stale"] for c in health["stale_caches"])
 
     try:
         with open(HEALTH_PATH, "w") as f:

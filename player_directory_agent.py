@@ -173,7 +173,7 @@ def build_player_directory(all_players: dict, rosteraudit_data: dict, fp_ranking
 
         candidates[str(sleeper_id)] = {"entry": entry, "fp_rank": fp_rank}
 
-    directory = {}
+    directory: dict = {}
     for fmt in ("sf", "1qb"):
         calibration = build_calibration_curve(candidates, ra_players[fmt])
 

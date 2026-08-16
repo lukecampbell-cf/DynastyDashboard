@@ -32,7 +32,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from common import is_stale, parsebot_headers
 
@@ -69,7 +69,7 @@ def fetch_dynasty_rankings(format_key: str, league_size: int = LEAGUE_SIZE) -> t
     total = None
 
     while total is None or (page - 1) * PER_PAGE < total:
-        params = {
+        params: dict[str, Union[str, int]] = {
             "sort": "value",
             "format": format_key,
             "position": "all",

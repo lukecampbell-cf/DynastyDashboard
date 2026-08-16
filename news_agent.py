@@ -9,6 +9,7 @@ Scrapes NFL injury reports, depth chart changes, and trade news from:
 Cross-references sources and returns structured news per player.
 """
 
+import concurrent.futures
 import httpx
 import logging
 import re
@@ -19,6 +20,7 @@ from bs4 import BeautifulSoup
 from typing import Optional
 
 from common import USER_AGENT, normalise_name, parsebot_headers
+from schemas import EnrichedPlayer, NewsByPlayerEntry, NewsItem, NewsOutput, ResolvedPlayer, SourceStatus
 
 log = logging.getLogger(__name__)
 
@@ -75,7 +77,7 @@ def fetch_html(url: str, retries: int = 2, headers: Optional[dict] = None) -> Op
     return None
 
 
-def scrape_rotowire() -> tuple[list[dict], Optional[str]]:
+def scrape_rotowire() -> tuple[list[NewsItem], Optional[str]]:
     """
     Scrape Rotowire NFL news feed.
     Returns (news items, error) — error is None on success (even with 0 items
@@ -90,7 +92,7 @@ def scrape_rotowire() -> tuple[list[dict], Optional[str]]:
         return [], "HTML fetch failed"
 
     soup = BeautifulSoup(html, "html.parser")
-    news_items = []
+    news_items: list[NewsItem] = []
 
     # Rotowire news cards
     cards = soup.select(".news-update") or soup.select("[class*='news']")
@@ -139,7 +141,7 @@ def scrape_rotowire() -> tuple[list[dict], Optional[str]]:
     return news_items, None
 
 
-def scrape_fantasypros_news() -> tuple[list[dict], Optional[str]]:
+def scrape_fantasypros_news() -> tuple[list[NewsItem], Optional[str]]:
     """
     Fetch FantasyPros' latest player news via the Parse Bot API
     (get_player_news), replacing the old direct HTML scrape of
@@ -167,7 +169,7 @@ def scrape_fantasypros_news() -> tuple[list[dict], Optional[str]]:
         log.warning(f"FantasyPros Parse Bot returned non-success status: {payload}")
         return [], "Parse Bot returned non-success status"
 
-    news_items = []
+    news_items: list[NewsItem] = []
     for item in payload.get("data", {}).get("news", []):
         title = item.get("title")
         if not title:
@@ -213,7 +215,7 @@ def get_current_nfl_week() -> Optional[dict]:
     return payload.get("data")
 
 
-def scrape_fantasypros_injuries() -> tuple[list[dict], Optional[str]]:
+def scrape_fantasypros_injuries() -> tuple[list[NewsItem], Optional[str]]:
     """
     Fetch structured NFL injury designations from FantasyPros via Parse Bot
     (get_injuries), keyed by NFL week/season rather than scraped live off a
@@ -253,7 +255,7 @@ def scrape_fantasypros_injuries() -> tuple[list[dict], Optional[str]]:
         log.warning(f"FantasyPros injuries returned non-success status: {payload}")
         return [], "Parse Bot returned non-success status"
 
-    news_items = []
+    news_items: list[NewsItem] = []
     for item in payload.get("data", {}).get("injuries", []):
         name = item.get("name")
         if not name:
@@ -280,7 +282,7 @@ def scrape_fantasypros_injuries() -> tuple[list[dict], Optional[str]]:
     return news_items, None
 
 
-def scrape_espn_nfl(limit: int = 50) -> tuple[list[dict], Optional[str]]:
+def scrape_espn_nfl(limit: int = 50) -> tuple[list[NewsItem], Optional[str]]:
     """
     Fetch ESPN's NFL news feed via the Parse Bot API, which does ESPN's own
     scraping for us and returns structured JSON (this replaced two HTML
@@ -315,7 +317,7 @@ def scrape_espn_nfl(limit: int = 50) -> tuple[list[dict], Optional[str]]:
         return [], "Parse Bot returned non-success status"
 
     articles = payload.get("data", {}).get("articles", [])
-    news_items = []
+    news_items: list[NewsItem] = []
 
     for article in articles:
         headline = article.get("headline")
@@ -326,7 +328,7 @@ def scrape_espn_nfl(limit: int = 50) -> tuple[list[dict], Optional[str]]:
         athletes = [c["description"] for c in categories if c.get("type") == "athlete" and c.get("description")]
         teams = [c["description"] for c in categories if c.get("type") == "team" and c.get("description")]
 
-        base_item = {
+        base_item: NewsItem = {
             "source": "espn",
             "team": teams[0] if teams else None,
             "headline": headline,
@@ -344,7 +346,7 @@ def scrape_espn_nfl(limit: int = 50) -> tuple[list[dict], Optional[str]]:
     return news_items, None
 
 
-def scrape_nfl_news() -> tuple[list[dict], Optional[str]]:
+def scrape_nfl_news() -> tuple[list[NewsItem], Optional[str]]:
     """
     Scrape NFL.com news feed.
     Returns (news items, error) — see scrape_rotowire() for the convention.
@@ -357,7 +359,7 @@ def scrape_nfl_news() -> tuple[list[dict], Optional[str]]:
         return [], "HTML fetch failed"
 
     soup = BeautifulSoup(html, "html.parser")
-    news_items = []
+    news_items: list[NewsItem] = []
     seen_links = set()
 
     cards = soup.select("a[href*='/news/']")
@@ -399,7 +401,7 @@ def scrape_nfl_news() -> tuple[list[dict], Optional[str]]:
     return news_items, None
 
 
-def scrape_cbssports_nfl() -> tuple[list[dict], Optional[str]]:
+def scrape_cbssports_nfl() -> tuple[list[NewsItem], Optional[str]]:
     """
     Scrape CBS Sports NFL news feed.
     Returns (news items, error) — see scrape_rotowire() for the convention.
@@ -412,7 +414,7 @@ def scrape_cbssports_nfl() -> tuple[list[dict], Optional[str]]:
         return [], "HTML fetch failed"
 
     soup = BeautifulSoup(html, "html.parser")
-    news_items = []
+    news_items: list[NewsItem] = []
     seen_links = set()
 
     cards = soup.select("a[href*='/nfl/news/']")
@@ -448,15 +450,15 @@ def scrape_cbssports_nfl() -> tuple[list[dict], Optional[str]]:
     return news_items, None
 
 
-def cross_reference(all_items: list[dict]) -> dict:
+def cross_reference(all_items: list[NewsItem]) -> dict[str, NewsByPlayerEntry]:
     """
     Group news items by player name across sources.
     Returns dict keyed by normalised player name with merged news.
     """
-    grouped = {}
+    grouped: dict[str, NewsByPlayerEntry] = {}
 
     for item in all_items:
-        raw_name = item.get("player_name", "")
+        raw_name = item.get("player_name") or ""
         key = normalise_name(raw_name)
         if not key:
             continue
@@ -497,18 +499,20 @@ def cross_reference(all_items: list[dict]) -> dict:
     return grouped
 
 
-def match_to_roster(news_by_player: dict, roster_players: list[dict]) -> list[dict]:
+def match_to_roster(
+    news_by_player: dict[str, NewsByPlayerEntry], roster_players: list[ResolvedPlayer]
+) -> list[EnrichedPlayer]:
     """
     Match scraped news items to players on the Sleeper roster.
     Returns roster players enriched with news data.
     """
-    enriched = []
+    enriched: list[EnrichedPlayer] = []
 
     for player in roster_players:
         norm_name = normalise_name(player.get("full_name", ""))
         news_data = news_by_player.get(norm_name)
 
-        player_with_news = dict(player)
+        player_with_news: EnrichedPlayer = {**player}
 
         if news_data:
             player_with_news["news_items"] = news_data["items"]
@@ -528,26 +532,42 @@ def match_to_roster(news_by_player: dict, roster_players: list[dict]) -> list[di
     return enriched
 
 
-def run(roster_players: list[dict] = None) -> dict:
+# (source label, zero-arg scraper) pairs run() fans out to concurrently.
+# scrape_espn_nfl takes an optional `limit`, wrapped in a lambda here purely
+# so every entry has the same zero-arg call signature.
+SOURCES = [
+    ("rotowire", scrape_rotowire),
+    ("fantasypros_news", scrape_fantasypros_news),
+    ("fantasypros_injuries", scrape_fantasypros_injuries),
+    ("espn", lambda: scrape_espn_nfl()),
+    ("nfl_com", scrape_nfl_news),
+    ("cbssports", scrape_cbssports_nfl),
+]
+
+
+def run(roster_players: Optional[list[ResolvedPlayer]] = None) -> NewsOutput:
     """
     Main entry point for the News agent.
     Scrapes all sources, cross-references, and optionally matches to roster.
     """
     log.info("News agent starting...")
 
-    all_items = []
-    source_status = {}
-    for label, scraper in [
-        ("rotowire", scrape_rotowire),
-        ("fantasypros_news", scrape_fantasypros_news),
-        ("fantasypros_injuries", scrape_fantasypros_injuries),
-        ("espn", scrape_espn_nfl),
-        ("nfl_com", scrape_nfl_news),
-        ("cbssports", scrape_cbssports_nfl),
-    ]:
-        items, error = scraper()
-        all_items.extend(items)
-        source_status[label] = {"ok": error is None, "error": error, "items": len(items)}
+    all_items: list[NewsItem] = []
+    source_status: dict[str, SourceStatus] = {}
+
+    # Six independent third-party sources — different domains/APIs, no
+    # shared rate limit between them (each scraper still has its own
+    # internal retry/backoff and "polite crawl delay" for its own site, see
+    # fetch_html) — so they run concurrently instead of one after another.
+    # futures are submitted and read back in SOURCES' own order (not
+    # completion order) purely so source_status's key order stays stable
+    # and readable in logs/JSON; the actual scraping itself is concurrent.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(SOURCES)) as executor:
+        futures = [executor.submit(scraper) for _, scraper in SOURCES]
+        for (label, _), future in zip(SOURCES, futures):
+            items, error = future.result()
+            all_items.extend(items)
+            source_status[label] = {"ok": error is None, "error": error, "items": len(items)}
 
     log.info(f"Total raw news items: {len(all_items)}")
 
@@ -555,7 +575,7 @@ def run(roster_players: list[dict] = None) -> dict:
     news_by_player = cross_reference(all_items)
     log.info(f"Unique players in news: {len(news_by_player)}")
 
-    result = {
+    result: NewsOutput = {
         "total_items": len(all_items),
         "unique_players": len(news_by_player),
         "news_by_player": news_by_player,

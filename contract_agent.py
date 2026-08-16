@@ -16,14 +16,16 @@ a hosted wrapper that does the HTML scraping for us and hands back structured
 JSON. Auth is a Parse Bot API key (PARSE_BOT_API in .env).
 """
 
+import concurrent.futures
 import httpx
 import logging
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Sequence
 
 from common import parsebot_headers
+from schemas import ContractInfo, ContractLookupPlayer
 from sleeper_agent import (
     PLAYER_CACHE_PATH,
     is_stale,
@@ -40,6 +42,16 @@ PARSEBOT_SCRAPER_ID = "1063a484-f52f-4db5-a50f-b26705848e2f"
 PARSEBOT_BASE_URL = f"https://api.parse.bot/scraper/{PARSEBOT_SCRAPER_ID}"
 
 CONTRACT_FRESHNESS = timedelta(days=28)
+
+# Concurrent Spotrac lookups in flight at once — this only runs for stale/
+# missing cache entries, which after the first backfill is a small fraction
+# of the roster, but a cold cache (first-ever run) hits Parse Bot for
+# hundreds of players sequentially otherwise, at 0.6s/player. 4 workers
+# (each still individually paced, see lookup_one() in run()) is a
+# conservative multiplier chosen without a documented Parse Bot rate limit
+# to check against — raise it if Parse Bot's actual limit comfortably allows
+# more, lower it if runs start seeing rate-limit errors.
+CONTRACT_LOOKUP_WORKERS = 4
 
 # Contract data only exists for individual players — team defenses have no
 # personal contract to look up.
@@ -157,7 +169,7 @@ def fetch_contract_details(spotrac_id: str) -> Optional[dict]:
     return payload.get("data")
 
 
-def summarise_current_contract(tables: list[dict]) -> dict:
+def summarise_current_contract(tables: list[dict]) -> ContractInfo:
     """
     Parse Bot's get_player_contract returns raw year-by-year tables (cap hit,
     cash, dead cap, earnings history, ...) rather than the clean "summary
@@ -177,7 +189,7 @@ def summarise_current_contract(tables: list[dict]) -> dict:
             continue
 
         m = CURRENT_TABLE_TITLE_RE.match(title)
-        summary = {
+        summary: ContractInfo = {
             "contract_span": f"{m.group('start')}-{m.group('end')}" if m else None,
             "contract_type": m.group("type").strip().title() if m and m.group("type").strip() else None,
             "current_year": rows[0][0] if rows[0] else None,
@@ -202,7 +214,7 @@ def summarise_current_contract(tables: list[dict]) -> dict:
     return {}
 
 
-def resolve_contract(full_name: str, position: str, known_spotrac_id: Optional[str] = None) -> dict:
+def resolve_contract(full_name: str, position: str, known_spotrac_id: Optional[str] = None) -> ContractInfo:
     """
     Look up one player's contract on Spotrac. Always returns a dict with a
     "found" flag and contract_updated_at, even on a miss, so a player with
@@ -224,7 +236,7 @@ def resolve_contract(full_name: str, position: str, known_spotrac_id: Optional[s
         details = fetch_contract_details(known_spotrac_id)
         if details and details.get("tables"):
             summary = summarise_current_contract(details["tables"])
-            result = {
+            result: ContractInfo = {
                 "found": bool(summary.get("contract_span")),
                 "spotrac_id": known_spotrac_id,
                 "contract_updated_at": now,
@@ -268,7 +280,7 @@ def resolve_contract(full_name: str, position: str, known_spotrac_id: Optional[s
     return {"found": False, "contract_updated_at": now}
 
 
-def run(players: list[dict]) -> dict:
+def run(players: Sequence[ContractLookupPlayer]) -> dict[str, ContractInfo]:
     """
     Main entry point. Takes the deduplicated roster player list (each dict
     needs at least player_id, full_name, position) and returns a dict of
@@ -284,53 +296,77 @@ def run(players: list[dict]) -> dict:
     reused = 0
     skipped = 0
     failed = 0
-    contracts_by_pid: dict[str, dict] = {}
+    contracts_by_pid: dict[str, ContractInfo] = {}
 
-    try:
-        for player in players:
-            pid = str(player.get("player_id"))
-            full_name = player.get("full_name", "")
-            position = player.get("position", "UNK")
+    # Phase 1 (sequential, no network): decide who actually needs a fresh
+    # Spotrac lookup vs. who's covered by an unexpired cached contract. Cheap
+    # and not worth parallelising — the real cost is entirely in phase 2.
+    to_lookup: list[tuple[str, str, str, Optional[str]]] = []
+    for player in players:
+        pid = str(player.get("player_id"))
+        full_name = player.get("full_name", "")
+        position = player.get("position", "UNK")
 
-            if not full_name or position in SKIP_POSITIONS:
-                skipped += 1
-                continue
+        if not full_name or position in SKIP_POSITIONS:
+            skipped += 1
+            continue
 
-            entry = player_cache.setdefault(pid, {"sleeper_player_id": pid, "full_name": full_name})
-            contract = entry.get("contract")
+        entry = player_cache.setdefault(pid, {"sleeper_player_id": pid, "full_name": full_name})
+        contract = entry.get("contract")
 
-            if contract and not is_stale(contract.get("contract_updated_at"), CONTRACT_FRESHNESS):
-                contracts_by_pid[pid] = contract
-                reused += 1
-                continue
-
-            known_spotrac_id = contract.get("spotrac_id") if contract else None
-            log.info(f"  Looking up contract: {full_name} ({position})")
-            try:
-                contract = resolve_contract(full_name, position, known_spotrac_id)
-            except Exception as e:
-                # One player's malformed Spotrac payload shouldn't cost every
-                # other lookup already done this run — isolate it and move on
-                # instead of letting it propagate out of the whole loop.
-                log.warning(f"  {full_name}: contract lookup crashed, skipping this run: {e}")
-                failed += 1
-                continue
-            entry["contract"] = contract
-            cache_dirty = True
+        if contract and not is_stale(contract.get("contract_updated_at"), CONTRACT_FRESHNESS):
             contracts_by_pid[pid] = contract
-            refreshed += 1
+            reused += 1
+            continue
 
-            # Save incrementally, not just once at the very end — a roster-wide
-            # run makes hundreds of external requests over several minutes, and
-            # without this a single crash or interruption partway through would
-            # throw away every contract already looked up, forcing a full
-            # re-fetch of the whole roster on the next run.
-            if refreshed % 10 == 0:
-                save_player_cache(player_cache)
+        known_spotrac_id = contract.get("spotrac_id") if contract else None
+        to_lookup.append((pid, full_name, position, known_spotrac_id))
 
-            # Stay under Parse Bot's rate limit — this only runs for stale/missing
-            # entries, which after the first backfill is a small fraction of the roster.
+    def lookup_one(item: tuple[str, str, str, Optional[str]]) -> tuple[str, str, Optional[ContractInfo]]:
+        pid, full_name, position, known_spotrac_id = item
+        log.info(f"  Looking up contract: {full_name} ({position})")
+        try:
+            contract = resolve_contract(full_name, position, known_spotrac_id)
+        except Exception as e:
+            # One player's malformed Spotrac payload shouldn't cost every
+            # other lookup already in flight — isolate it and move on
+            # instead of letting it propagate out of the whole batch.
+            log.warning(f"  {full_name}: contract lookup crashed, skipping this run: {e}")
+            contract = None
+        finally:
+            # Stay under Parse Bot's rate limit per-worker — CONTRACT_LOOKUP_WORKERS
+            # bounds how many of these run concurrently, this bounds how fast any
+            # one of them fires requests, so the two multiply rather than one
+            # undoing the other.
             time.sleep(0.6)
+        return pid, full_name, contract
+
+    # Phase 2 (concurrent, network-bound): CONTRACT_LOOKUP_WORKERS lookups in
+    # flight at once instead of one at a time — the 0.6s pacing above is
+    # per-worker, so total throughput scales with the worker count rather
+    # than being flattened back to one request every 0.6s. executor.map()
+    # preserves submission order for the results below, which keeps the
+    # "save every 10th" checkpoint below meaningful even though completion
+    # order across threads isn't guaranteed to match it exactly.
+    try:
+        if to_lookup:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=CONTRACT_LOOKUP_WORKERS) as executor:
+                for pid, full_name, contract in executor.map(lookup_one, to_lookup):
+                    if contract is None:
+                        failed += 1
+                        continue
+                    player_cache[pid]["contract"] = contract
+                    cache_dirty = True
+                    contracts_by_pid[pid] = contract
+                    refreshed += 1
+
+                    # Save incrementally, not just once at the very end — a
+                    # roster-wide run makes hundreds of external requests, and
+                    # without this a crash or interruption partway through
+                    # would throw away every contract already looked up,
+                    # forcing a full re-fetch of the whole roster next run.
+                    if refreshed % 10 == 0:
+                        save_player_cache(player_cache)
     finally:
         if cache_dirty:
             save_player_cache(player_cache)
@@ -345,7 +381,7 @@ def run(players: list[dict]) -> dict:
 if __name__ == "__main__":
     import json
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [CONTRACT] %(message)s")
-    mock_players = [
+    mock_players: list[ContractLookupPlayer] = [
         {"player_id": "test-mahomes", "full_name": "Patrick Mahomes", "position": "QB"},
     ]
     print(json.dumps(run(mock_players), indent=2))

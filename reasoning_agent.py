@@ -14,6 +14,19 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+from schemas import (
+    AnalysedPlayer,
+    AnalysisCacheEntry,
+    ContractInfo,
+    EnrichedPlayer,
+    LeagueResult,
+    NewsOutput,
+    ReasoningOutput,
+    ReasoningResult,
+    SleeperOutput,
+    SummaryCacheEntry,
+)
+
 log = logging.getLogger(__name__)
 
 SONNET_MODEL = "claude-sonnet-4-6"
@@ -78,7 +91,7 @@ def get_client() -> anthropic.Anthropic:
     return anthropic.Anthropic(api_key=api_key)
 
 
-def load_analysis_cache() -> dict:
+def load_analysis_cache() -> dict[str, AnalysisCacheEntry]:
     """Load the persisted per-player analysis cache, keyed by Sleeper player_id."""
     if not CACHE_PATH.exists():
         return {}
@@ -90,7 +103,7 @@ def load_analysis_cache() -> dict:
         return {}
 
 
-def save_analysis_cache(cache: dict) -> None:
+def save_analysis_cache(cache: dict[str, AnalysisCacheEntry]) -> None:
     try:
         with open(CACHE_PATH, "w") as f:
             json.dump(cache, f, indent=2, sort_keys=True)
@@ -98,7 +111,7 @@ def save_analysis_cache(cache: dict) -> None:
         log.error(f"Failed to save analysis cache: {e}")
 
 
-def load_summary_cache() -> dict:
+def load_summary_cache() -> dict[str, SummaryCacheEntry]:
     """Load the persisted per-league summary cache, keyed by league_id."""
     if not SUMMARY_CACHE_PATH.exists():
         return {}
@@ -110,7 +123,7 @@ def load_summary_cache() -> dict:
         return {}
 
 
-def save_summary_cache(cache: dict) -> None:
+def save_summary_cache(cache: dict[str, SummaryCacheEntry]) -> None:
     try:
         with open(SUMMARY_CACHE_PATH, "w") as f:
             json.dump(cache, f, indent=2, sort_keys=True)
@@ -118,7 +131,7 @@ def save_summary_cache(cache: dict) -> None:
         log.error(f"Failed to save summary cache: {e}")
 
 
-def is_cache_entry_fresh(entry: Optional[dict]) -> bool:
+def is_cache_entry_fresh(entry: Optional[AnalysisCacheEntry]) -> bool:
     """True if the cached entry has a reasoning result analysed within CACHE_FRESHNESS."""
     if not entry or not entry.get("last_analyzed") or not entry.get("reasoning"):
         return False
@@ -129,7 +142,7 @@ def is_cache_entry_fresh(entry: Optional[dict]) -> bool:
     return datetime.now(timezone.utc) - last_analyzed < CACHE_FRESHNESS
 
 
-def compute_signal_fingerprint(player: dict) -> dict:
+def compute_signal_fingerprint(player: EnrichedPlayer) -> dict:
     """
     A small, JSON-serialisable snapshot of everything that could change a
     player's analysis: injury status, roster flags, and the actual news
@@ -148,7 +161,7 @@ def compute_signal_fingerprint(player: dict) -> dict:
     }
 
 
-def has_zero_signal(player: dict) -> bool:
+def has_zero_signal(player: EnrichedPlayer) -> bool:
     """
     True if there's nothing for the model to react to: no news items, no
     injury designation, and not on IR/taxi. These players get a templated
@@ -167,7 +180,7 @@ def has_zero_signal(player: dict) -> bool:
     )
 
 
-def requires_sonnet_analysis(player: dict) -> bool:
+def requires_sonnet_analysis(player: EnrichedPlayer) -> bool:
     """
     True if a player's signal is significant enough to warrant Sonnet's
     deeper reasoning: a flagged injury (news_agent.cross_reference's
@@ -184,7 +197,7 @@ def requires_sonnet_analysis(player: dict) -> bool:
     )
 
 
-def is_quiet_reuse_eligible(entry: Optional[dict], player: dict) -> bool:
+def is_quiet_reuse_eligible(entry: Optional[AnalysisCacheEntry], player: EnrichedPlayer) -> bool:
     """
     True if a stale (beyond CACHE_FRESHNESS) cache entry can be reused
     without a fresh LLM call: the player has a prior analysis, it's not so
@@ -266,7 +279,7 @@ positional dynasty aging curves — use as a prior alongside the player's actual
 """
 
 
-def format_contract_block(contract: Optional[dict]) -> str:
+def format_contract_block(contract: Optional[ContractInfo]) -> str:
     """Render Spotrac contract data (from contract_agent.py, via the Parse Bot API) for the prompt, if any."""
     fallback = (
         "No verified contract data available for this player — give your best general "
@@ -296,7 +309,7 @@ def format_contract_block(contract: Optional[dict]) -> str:
     return "\n".join(lines) if len(lines) > 1 else fallback
 
 
-def build_zero_signal_reasoning(player: dict) -> dict:
+def build_zero_signal_reasoning(player: EnrichedPlayer) -> ReasoningResult:
     """
     Templated reasoning for a has_zero_signal() player — no LLM call. The
     contract note is pulled straight from the verified Spotrac fields
@@ -340,7 +353,7 @@ def truncate_news_field(text: Optional[str]) -> Optional[str]:
     return text[:NEWS_FIELD_MAX_CHARS].rstrip() + "…"
 
 
-def build_player_block(player: dict) -> str:
+def build_player_block(player: EnrichedPlayer) -> str:
     """
     Build one player's analysis block, tagged with its Sleeper player_id so a
     batched response can be mapped back to the right player unambiguously.
@@ -403,7 +416,7 @@ RECENT NEWS ({player.get('source_count', 0)} source(s)):
 {news_block}"""
 
 
-def build_player_prompt(player: dict) -> str:
+def build_player_prompt(player: EnrichedPlayer) -> str:
     """Build a full single-player analysis prompt (used for one-off/manual analysis)."""
     return f"""Analyse this dynasty fantasy NFL player:
 
@@ -412,7 +425,7 @@ def build_player_prompt(player: dict) -> str:
 Provide your structured JSON assessment."""
 
 
-def build_batch_prompt(players: list[dict]) -> str:
+def build_batch_prompt(players: list[EnrichedPlayer]) -> str:
     """Build one prompt analysing multiple players in a single call, each tagged by PLAYER_ID."""
     ids = ", ".join(str(p.get("player_id")) for p in players)
     blocks = "\n\n".join(build_player_block(p) for p in players)
@@ -428,11 +441,18 @@ Provide your structured JSON assessment for every player above, keyed by PLAYER_
 
 def cached_system_block() -> list[dict]:
     """System prompt wrapped for Anthropic prompt caching — identical content across every
-    call (single or batched) so the cache actually hits."""
+    call (single or batched) so the cache actually hits.
+
+    Return type is a plain list[dict], not list[anthropic.types.TextBlockParam]:
+    the pinned anthropic==0.29.0 SDK's own TextBlockParam stub predates
+    cache_control support, even though the live API (and this SDK version)
+    both accept it — prompt caching went GA after this stub was cut. The
+    mismatch is silenced with `# type: ignore[arg-type]` at each call site
+    below rather than worked around, since the dict shape here is correct."""
     return [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}]
 
 
-def analyse_player(client: anthropic.Anthropic, player: dict, retries: int = 2) -> Optional[dict]:
+def analyse_player(client: anthropic.Anthropic, player: EnrichedPlayer, retries: int = 2) -> Optional[ReasoningResult]:
     """
     Call the Anthropic API to analyse a single player.
     Returns parsed JSON result or None on failure.
@@ -444,11 +464,11 @@ def analyse_player(client: anthropic.Anthropic, player: dict, retries: int = 2) 
             response = client.messages.create(
                 model=SONNET_MODEL,
                 max_tokens=1000,
-                system=cached_system_block(),
+                system=cached_system_block(),  # type: ignore[arg-type]  # see cached_system_block() docstring
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            raw = response.content[0].text.strip()
+            raw = response.content[0].text.strip()  # type: ignore[union-attr]  # no tools ever passed, always a TextBlock
 
             # Strip markdown fences if present
             if raw.startswith("```"):
@@ -479,8 +499,8 @@ def analyse_player(client: anthropic.Anthropic, player: dict, retries: int = 2) 
 
 
 def analyse_players_batch(
-    client: anthropic.Anthropic, players: list[dict], retries: int = 2, model: str = SONNET_MODEL
-) -> dict[str, dict]:
+    client: anthropic.Anthropic, players: list[EnrichedPlayer], retries: int = 2, model: str = SONNET_MODEL
+) -> dict[str, ReasoningResult]:
     """
     Call the Anthropic API once to analyse a whole batch of players, returning
     a dict of player_id (str) -> parsed reasoning dict.
@@ -509,11 +529,11 @@ def analyse_players_batch(
             response = client.messages.create(
                 model=model,
                 max_tokens=max_tokens,
-                system=cached_system_block(),
+                system=cached_system_block(),  # type: ignore[arg-type]  # see cached_system_block() docstring
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            raw = response.content[0].text.strip()
+            raw = response.content[0].text.strip()  # type: ignore[union-attr]  # no tools ever passed, always a TextBlock
             if raw.startswith("```"):
                 raw = raw.split("```")[1]
                 if raw.startswith("json"):
@@ -548,7 +568,7 @@ def analyse_players_batch(
     return {}
 
 
-def compute_summary_fingerprint(analysed_players: list[dict]) -> dict:
+def compute_summary_fingerprint(analysed_players: list[AnalysedPlayer]) -> dict:
     """
     Everything generate_league_summary()'s prompt is actually built from:
     the trend/injury counts and the same top-5 name lists that get spliced
@@ -572,7 +592,7 @@ def compute_summary_fingerprint(analysed_players: list[dict]) -> dict:
     }
 
 
-def generate_league_summary(client: anthropic.Anthropic, league_name: str, analysed_players: list[dict]) -> str:
+def generate_league_summary(client: anthropic.Anthropic, league_name: str, analysed_players: list[AnalysedPlayer]) -> str:
     """
     Generate a short executive summary for the league dashboard header.
 
@@ -606,14 +626,15 @@ Be specific, direct, and use the data above. No generic filler. Respond with pla
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}],
         )
-        return response.content[0].text.strip()
+        return response.content[0].text.strip()  # type: ignore[union-attr]  # no tools ever passed, always a TextBlock
     except Exception as e:
         log.error(f"Failed to generate league summary: {e}")
         return f"{league_name}: {len(up)} trending up, {len(down)} trending down, {len(injured)} injury concerns."
 
 
 def analyse_in_batches(
-    client: anthropic.Anthropic, players: list[dict], model: str, analysis_cache: dict
+    client: anthropic.Anthropic, players: list[EnrichedPlayer], model: str,
+    analysis_cache: dict[str, AnalysisCacheEntry]
 ) -> int:
     """
     Batch-analyse `players` BATCH_SIZE at a time using `model`, writing
@@ -649,7 +670,7 @@ def analyse_in_batches(
     return analysed_count
 
 
-def run(sleeper_data: dict, news_data: dict) -> dict:
+def run(sleeper_data: SleeperOutput, news_data: NewsOutput) -> ReasoningOutput:
     """
     Main entry point for the Reasoning agent.
     Takes Sleeper and News agent outputs, returns enriched data with AI analysis.
@@ -665,7 +686,7 @@ def run(sleeper_data: dict, news_data: dict) -> dict:
     summary_cache_hits = 0
     summary_cache_misses = 0
 
-    result = {
+    result: ReasoningOutput = {
         "username": sleeper_data.get("username"),
         "season": sleeper_data.get("season"),
         "leagues": [],
@@ -685,8 +706,8 @@ def run(sleeper_data: dict, news_data: dict) -> dict:
     # as the old per-run cache dedup behaviour.
     from news_agent import match_to_roster
 
-    league_players: dict[str, list[dict]] = {}
-    unique_players: dict[str, dict] = {}
+    league_players: dict[str, list[EnrichedPlayer]] = {}
+    unique_players: dict[str, EnrichedPlayer] = {}
 
     for league in sleeper_data.get("leagues", []):
         players = league.get("players", [])
@@ -702,7 +723,7 @@ def run(sleeper_data: dict, news_data: dict) -> dict:
     # entries (nothing about the player changed, so the old write-up is
     # reused as-is instead of burning an LLM call), and real misses that need
     # a fresh analysis.
-    to_analyse = []
+    to_analyse: list[EnrichedPlayer] = []
     quiet_reuses = 0
     zero_signal_skips = 0
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -711,6 +732,9 @@ def run(sleeper_data: dict, news_data: dict) -> dict:
         if is_cache_entry_fresh(cached_entry):
             continue
         if is_quiet_reuse_eligible(cached_entry, player):
+            # is_quiet_reuse_eligible() returns False outright when entry is
+            # falsy, so True here means cached_entry is non-None.
+            assert cached_entry is not None
             cached_entry["last_analyzed"] = now_iso
             quiet_reuses += 1
             continue
@@ -745,13 +769,13 @@ def run(sleeper_data: dict, news_data: dict) -> dict:
 
         enriched_players = league_players[league["league_id"]]
 
-        analysed = []
+        analysed: list[AnalysedPlayer] = []
         for player in enriched_players:
             pid = str(player.get("player_id"))
             cached_entry = analysis_cache.get(pid)
-            reasoning = (cached_entry or {}).get("reasoning")
+            reasoning = cached_entry.get("reasoning") if cached_entry else None
 
-            player_result = dict(player)
+            player_result: AnalysedPlayer = {**player}
             player_result["reasoning"] = reasoning or {
                 "trend": "WATCH",
                 "confidence": "LOW",
@@ -763,7 +787,7 @@ def run(sleeper_data: dict, news_data: dict) -> dict:
                 "roster_status_note": None,
                 "flags": [],
             }
-            player_result["last_analyzed"] = (cached_entry or {}).get("last_analyzed")
+            player_result["last_analyzed"] = cached_entry.get("last_analyzed") if cached_entry else None
 
             analysed.append(player_result)
 
@@ -791,7 +815,7 @@ def run(sleeper_data: dict, news_data: dict) -> dict:
         )
         watch_list = [p for p in analysed if p["reasoning"]["trend"] == "WATCH"]
 
-        league_result = {
+        league_result: LeagueResult = {
             "league_id": league["league_id"],
             "league_name": league_name,
             "season": league["season"],
@@ -844,17 +868,28 @@ def run(sleeper_data: dict, news_data: dict) -> dict:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [REASONING] %(message)s")
     # Test with mock data
-    mock_player = {
+    mock_player: EnrichedPlayer = {
+        "player_id": "mock-waddle",
         "full_name": "Jaylen Waddle",
         "position": "WR",
         "team": "MIA",
         "age": 25,
         "years_exp": 3,
+        "college": "Alabama",
+        "draft_year": 2021,
         "injury_status": "Questionable",
         "injury_body_part": "knee",
+        "status": "Active",
         "is_starter": True,
         "is_ir": False,
         "is_taxi": False,
+        "fp_player_id": None,
+        "fp_rank": None,
+        "fp_pos_rank": None,
+        "fp_tier": None,
+        "fp_scoring_format": "ppr",
+        "trade_value": None,
+        "contract": None,
         "news_items": [
             {
                 "source": "rotowire",

@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Optional
 
 from common import USER_AGENT, normalise_name
+from schemas import LeagueRecord, PlayerCacheEntry, ResolvedPlayer, SleeperOutput
 import player_directory_agent
 import trade_value_agent
 
@@ -294,7 +295,7 @@ def trade_value_tier(rank: Optional[int]) -> Optional[str]:
     return "Waiver / Deep Stash"
 
 
-def determine_value_format(roster_positions: list) -> str:
+def determine_value_format(roster_positions: Optional[list]) -> str:
     """
     Decide whether a league's RosterAudit trade values should be Superflex
     or 1QB — a SUPER_FLEX slot, or a second dedicated QB slot, means teams
@@ -334,7 +335,7 @@ def derive_trade_value(
 DESIGNATION_POSITIONS = {"QB", "RB", "WR", "TE", "K", "DEF"}
 
 
-def assign_roster_designations(players: list[dict]) -> None:
+def assign_roster_designations(players: list[ResolvedPlayer]) -> None:
     """
     Assign a roster-relative depth designation (WR1, WR2, RB1, ...) to each
     player, mutating the list in place. Ranked within this roster only (not
@@ -343,7 +344,7 @@ def assign_roster_designations(players: list[dict]) -> None:
     still get a designation, just at the bottom of their position group.
     Only applied to standard fantasy positions; anything else is left unset.
     """
-    by_position: dict[str, list[dict]] = {}
+    by_position: dict[str, list[ResolvedPlayer]] = {}
     for p in players:
         pos = p.get("position")
         if pos in DESIGNATION_POSITIONS:
@@ -355,7 +356,7 @@ def assign_roster_designations(players: list[dict]) -> None:
             p["roster_designation"] = f"{pos}{i}"
 
 
-def load_player_cache() -> dict:
+def load_player_cache() -> dict[str, PlayerCacheEntry]:
     """Load the persisted per-player cache, keyed by Sleeper player_id."""
     if PLAYER_CACHE_PATH.exists():
         try:
@@ -379,7 +380,7 @@ def load_player_cache() -> dict:
     return {}
 
 
-def save_player_cache(player_cache: dict) -> None:
+def save_player_cache(player_cache: dict[str, PlayerCacheEntry]) -> None:
     """Persist the per-player cache."""
     try:
         with open(PLAYER_CACHE_PATH, "w") as f:
@@ -455,14 +456,14 @@ def get_league_info(league_id: str) -> Optional[dict]:
         return None
 
 
-def run() -> dict:
+def run() -> SleeperOutput:
     """
     Main entry point for the Sleeper agent.
     Season is resolved dynamically — no hardcoding required.
     Returns a structured summary of all leagues, the user's rosters, and player details.
     """
     username = os.environ.get("SLEEPER_USERNAME", "")
-    result = {
+    result: SleeperOutput = {
         "username": username,
         "season": None,
         "user": None,
@@ -562,7 +563,7 @@ def run() -> dict:
         ra_players = ra_format_data.get("players", {})
         ra_tier_chart = ra_format_data.get("tier_chart", [])
 
-        resolved_players = []
+        resolved_players: list[ResolvedPlayer] = []
         for pid in player_ids:
             p = all_players.get(pid, {})
             if not p:
@@ -602,6 +603,11 @@ def run() -> dict:
                 player_cache_dirty = True
                 details_refreshed += 1
 
+            # stale = cache_entry is None or is_stale(...) above, so if we
+            # get here without the "if stale:" branch running, stale was
+            # False, which means cache_entry was already non-None.
+            assert cache_entry is not None
+
             # fp_rank/tier move daily even when bio details are still fresh,
             # so always re-read those live off today's rankings fetch.
             fp_id = cache_entry.get("fp_player_id")
@@ -633,7 +639,7 @@ def run() -> dict:
 
         assign_roster_designations(resolved_players)
 
-        league_data = {
+        league_data: LeagueRecord = {
             "league_id": league_id,
             "league_name": league_name,
             "season": season,

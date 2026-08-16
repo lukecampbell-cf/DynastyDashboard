@@ -10,6 +10,7 @@ import os
 import re
 import time
 from pathlib import Path
+from typing import Optional
 
 # Shared browser identity for direct HTML scraping (sleeper_agent's
 # FantasyPros rankings pages, news_agent's Rotowire/NFL.com/CBS Sports
@@ -34,7 +35,7 @@ def parsebot_headers() -> dict:
     return {"X-API-Key": os.environ.get("PARSE_BOT_API", "")}
 
 
-def normalise_name(name: str) -> str:
+def normalise_name(name: Optional[str]) -> str:
     """Normalise a player name for matching across Sleeper, FantasyPros, Spotrac, and news sources."""
     if not name:
         return ""

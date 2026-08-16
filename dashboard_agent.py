@@ -12,6 +12,8 @@ from html import escape
 from pathlib import Path
 from typing import Optional
 
+from schemas import AnalysedPlayer, LeagueResult, ReasoningOutput
+
 log = logging.getLogger(__name__)
 
 OUTPUT_PATH = os.environ.get("DASHBOARD_OUTPUT_PATH", "")
@@ -131,7 +133,7 @@ def source_attribution_html(news_items: list) -> str:
     return f'<div class="source-attribution">📎 <span class="source-attribution-label">Sources:</span> {"".join(chips)}</div>'
 
 
-def render_player_card(player: dict) -> str:
+def render_player_card(player: AnalysedPlayer) -> str:
     reasoning = player.get("reasoning", {})
     trend = reasoning.get("trend", "WATCH")
     confidence = reasoning.get("confidence", "LOW")
@@ -228,12 +230,12 @@ def render_player_card(player: dict) -> str:
     </div>"""
 
 
-def league_slug(league: dict) -> str:
+def league_slug(league: LeagueResult) -> str:
     """Stable per-league anchor id, used to link the nav bar to its <details> section."""
     return f"league-{esc(league.get('league_id', 'unknown'))}"
 
 
-def render_league_section(league: dict, is_first: bool = False) -> str:
+def render_league_section(league: LeagueResult, is_first: bool = False) -> str:
     name = league["league_name"]
     season = league["season"]
     summary = league.get("summary", "")
@@ -285,7 +287,7 @@ def render_league_section(league: dict, is_first: bool = False) -> str:
   </details>"""
 
 
-def render_league_nav(leagues: list) -> str:
+def render_league_nav(leagues: list[LeagueResult]) -> str:
     """Quick-jump nav bar so a specific team can be reached without scrolling past the rest."""
     if not leagues:
         return ""
@@ -307,7 +309,7 @@ def render_league_nav(leagues: list) -> str:
 GLOBAL_TRENDS_MAX = 6
 
 
-def render_global_trends_section(global_up: list, global_down: list) -> str:
+def render_global_trends_section(global_up: list[AnalysedPlayer], global_down: list[AnalysedPlayer]) -> str:
     """
     Cross-league "trending across all your leagues" panel, from
     reasoning_agent.py's global_trends — the same player dicts (and cards)
@@ -337,7 +339,7 @@ def render_global_trends_section(global_up: list, global_down: list) -> str:
   </section>"""
 
 
-def render_html(reasoning_data: dict) -> str:
+def render_html(reasoning_data: ReasoningOutput) -> str:
     """Render the full HTML dashboard."""
     username = esc(reasoning_data.get("username", os.environ.get("SLEEPER_USERNAME", "your_username")))
     season = esc(reasoning_data.get("season", "2025"))
@@ -440,7 +442,7 @@ def write_dashboard(html: str, output_path: str = OUTPUT_PATH) -> bool:
         return False
 
 
-def run(reasoning_data: dict, output_path: str = OUTPUT_PATH) -> bool:
+def run(reasoning_data: ReasoningOutput, output_path: str = OUTPUT_PATH) -> bool:
     """
     Main entry point for the Dashboard agent.
     Renders HTML and writes to web root.
@@ -458,7 +460,7 @@ def run(reasoning_data: dict, output_path: str = OUTPUT_PATH) -> bool:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [DASHBOARD] %(message)s")
     # Test with empty data
-    mock_data = {
+    mock_data: ReasoningOutput = {
         "username": os.environ.get("SLEEPER_USERNAME", "your_username"),
         "season": "2025",
         "leagues": [],
