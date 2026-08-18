@@ -4,9 +4,16 @@
 - Python 3.11+
 - Nginx serving your-domain.com with web root at /var/www/sites/your-domain.com/httpdocs/
 - Your Anthropic API key (DASHBOARD_KEY)
-- A Parse Bot API key (PARSE_BOT_API) — powers the Contract Agent's Spotrac lookup and
-  the News Agent's ESPN feed. Non-fatal if missing: those two steps just return no
-  data and the pipeline continues.
+- A Parse Bot API key (PARSE_BOT_API) — a paid, metered third-party API (see
+  [parse.bot](https://parse.bot) for current pricing) that powers the Contract Agent's
+  Spotrac lookup, three of the News Agent's six sources (ESPN, FantasyPros news,
+  FantasyPros injuries), and the Trade Value Agent's RosterAudit rankings. Optional and
+  non-fatal everywhere it's used: missing key, an outage, or a rate/credit limit hit
+  makes that one call site degrade on its own rather than stop the run — Contract Agent
+  falls back to no verified contract data (Claude hedges from general knowledge
+  instead), News Agent just runs with fewer of its six sources, and Trade Value Agent
+  falls back to its last successfully cached file. A Parse Bot outage or pricing change
+  never stops the pipeline from producing a dashboard, only from enriching it as fully.
 
 ---
 

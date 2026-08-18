@@ -1,5 +1,7 @@
 # Dynasty Dashboard
 
+[![Tests](https://github.com/lukecampbell-cf/DynastyDashboard/actions/workflows/tests.yml/badge.svg)](https://github.com/lukecampbell-cf/DynastyDashboard/actions/workflows/tests.yml)
+
 An automated pipeline that pulls your Sleeper fantasy football rosters, cross-references
 player news from six sites, layers in FantasyPros consensus rankings and RosterAudit
 dynasty trade value, runs it all through Claude for a trend/recommendation call per
@@ -7,6 +9,10 @@ player, and renders the result as a static HTML dashboard.
 
 For install/deploy/cron instructions, see [SETUP.md](SETUP.md). This file covers what
 the pipeline does and how the pieces fit together.
+
+Contract lookups, three of the six news sources, and dynasty trade values all depend on
+a single paid third-party API (Parse Bot) — see [SETUP.md's Prerequisites](SETUP.md#prerequisites)
+for exactly how the pipeline degrades if it's unavailable or its pricing changes.
 
 ---
 

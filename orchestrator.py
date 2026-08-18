@@ -34,6 +34,7 @@ import news_agent
 import reasoning_agent
 import dashboard_agent
 import health_agent
+from schemas import NewsOutput, ReasoningOutput, SleeperOutput
 
 logging.basicConfig(
     level=logging.INFO,
@@ -74,7 +75,7 @@ def check_environment(dry_run: bool = False) -> bool:
     return True
 
 
-def run_pipeline(dry_run: bool = False) -> bool:
+def run_pipeline(dry_run: bool = False, debug: bool = False) -> bool:
     """
     Execute the full agent pipeline.
     Season is resolved dynamically by the Sleeper agent.
@@ -84,6 +85,10 @@ def run_pipeline(dry_run: bool = False) -> bool:
     writes health_agent.record_run(steps, ...) before returning — on every
     exit path, not just the success one, so a failed run still updates
     health.json instead of leaving it frozen at the last good state.
+
+    When `debug` is set, intermediate step outputs are dumped to disk via
+    save_pipeline_data() right after the Reasoning step, so a dashboard
+    render failure doesn't lose them.
     """
     started_at = time.time()
     log.info("=" * 60)
@@ -171,6 +176,8 @@ def run_pipeline(dry_run: bool = False) -> bool:
         )
         log.info(f"Reasoning: {total_analysed} players analysed across {len(reasoning_data['leagues'])} league(s)")
         steps["reasoning"] = {"ok": True, "error": None}
+        if debug:
+            save_pipeline_data(sleeper_data, news_data, reasoning_data)
     except Exception as e:
         log.error(f"Reasoning agent failed: {e}")
         steps["reasoning"] = {"ok": False, "error": str(e)}
@@ -197,7 +204,7 @@ def run_pipeline(dry_run: bool = False) -> bool:
         return False
 
 
-def save_pipeline_data(sleeper_data: dict, news_data: dict, reasoning_data: dict):
+def save_pipeline_data(sleeper_data: SleeperOutput, news_data: NewsOutput, reasoning_data: ReasoningOutput):
     """Save intermediate pipeline data for debugging."""
     debug_dir = Path(__file__).parent / "debug"
     debug_dir.mkdir(exist_ok=True)
@@ -222,5 +229,5 @@ if __name__ == "__main__":
     if not check_environment(dry_run=args.dry_run):
         sys.exit(1)
 
-    success = run_pipeline(dry_run=args.dry_run)
+    success = run_pipeline(dry_run=args.dry_run, debug=args.debug)
     sys.exit(0 if success else 1)

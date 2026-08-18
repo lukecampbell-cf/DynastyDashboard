@@ -14,6 +14,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+from anthropic.types import TextBlockParam
+
 from schemas import (
     AnalysedPlayer,
     AnalysisCacheEntry,
@@ -29,8 +31,8 @@ from schemas import (
 
 log = logging.getLogger(__name__)
 
-SONNET_MODEL = "claude-sonnet-4-6"
-HAIKU_MODEL = "claude-haiku-4-5"
+SONNET_MODEL = os.environ.get("REASONING_SONNET_MODEL", "claude-sonnet-4-6")
+HAIKU_MODEL = os.environ.get("REASONING_HAIKU_MODEL", "claude-haiku-4-5")
 
 # Cross-league, cross-run analysis cache. A player rostered in multiple
 # leagues is analysed once and reused everywhere else within the freshness
@@ -60,6 +62,16 @@ SUMMARY_CACHE_PATH = Path(__file__).resolve().parent / "league_summary_cache.jso
 # (age, career-year references, etc.) can go stale even when the inputs
 # didn't change.
 QUIET_REUSE_MAX_AGE = timedelta(days=7)
+
+# If the Anthropic API is down for a whole run, every batch fails only after
+# burning its own full retry budget (see analyse_players_batch's `retries`),
+# batch after batch, for the same result. This caps how many consecutive
+# batches analyse_in_batches will let come back completely empty (every
+# player in the batch missing — the signature of an API-wide outage, not a
+# few players being individually hard to analyse) before it bails on the
+# remaining batches for that call. Unanalysed players are simply absent from
+# the cache, same as any other miss, and get retried on the next run.
+MAX_CONSECUTIVE_BATCH_FAILURES = 3
 
 # Players per reasoning call. Big enough to meaningfully cut the per-call
 # system-prompt overhead (283 individual calls -> ~15 batched ones), small
@@ -439,16 +451,9 @@ exactly once: {ids}
 Provide your structured JSON assessment for every player above, keyed by PLAYER_ID."""
 
 
-def cached_system_block() -> list[dict]:
+def cached_system_block() -> list[TextBlockParam]:
     """System prompt wrapped for Anthropic prompt caching — identical content across every
-    call (single or batched) so the cache actually hits.
-
-    Return type is a plain list[dict], not list[anthropic.types.TextBlockParam]:
-    the pinned anthropic==0.29.0 SDK's own TextBlockParam stub predates
-    cache_control support, even though the live API (and this SDK version)
-    both accept it — prompt caching went GA after this stub was cut. The
-    mismatch is silenced with `# type: ignore[arg-type]` at each call site
-    below rather than worked around, since the dict shape here is correct."""
+    call (single or batched) so the cache actually hits."""
     return [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}]
 
 
@@ -464,7 +469,7 @@ def analyse_player(client: anthropic.Anthropic, player: EnrichedPlayer, retries:
             response = client.messages.create(
                 model=SONNET_MODEL,
                 max_tokens=1000,
-                system=cached_system_block(),  # type: ignore[arg-type]  # see cached_system_block() docstring
+                system=cached_system_block(),
                 messages=[{"role": "user", "content": prompt}],
             )
 
@@ -529,7 +534,7 @@ def analyse_players_batch(
             response = client.messages.create(
                 model=model,
                 max_tokens=max_tokens,
-                system=cached_system_block(),  # type: ignore[arg-type]  # see cached_system_block() docstring
+                system=cached_system_block(),
                 messages=[{"role": "user", "content": prompt}],
             )
 
@@ -641,8 +646,12 @@ def analyse_in_batches(
     results (and re-saving incrementally, so a crash partway through a long
     run doesn't throw away batches already done) into analysis_cache.
     Returns the number of players successfully analysed.
+
+    Bails early after MAX_CONSECUTIVE_BATCH_FAILURES consecutive completely
+    empty batches — see that constant's docstring.
     """
     analysed_count = 0
+    consecutive_failures = 0
     for batch_start in range(0, len(players), BATCH_SIZE):
         batch = players[batch_start:batch_start + BATCH_SIZE]
         batch_num = batch_start // BATCH_SIZE + 1
@@ -650,6 +659,12 @@ def analyse_in_batches(
         log.info(f"Analysing {model} batch {batch_num}/{total_batches} ({len(batch)} players)...")
 
         batch_results = analyse_players_batch(client, batch, model=model)
+
+        if not batch_results:
+            consecutive_failures += 1
+        else:
+            consecutive_failures = 0
+
         now = datetime.now(timezone.utc).isoformat()
         for player in batch:
             pid = str(player.get("player_id"))
@@ -666,6 +681,16 @@ def analyse_in_batches(
                 log.warning(f"  No result for {player.get('full_name')} (pid={pid}) — will retry next run")
 
         save_analysis_cache(analysis_cache)
+
+        if consecutive_failures >= MAX_CONSECUTIVE_BATCH_FAILURES:
+            remaining = len(players) - (batch_start + len(batch))
+            log.error(
+                f"{consecutive_failures} consecutive {model} batches returned no results — "
+                f"bailing on the remaining {remaining} player(s) for this run instead of "
+                "burning their retry budget too. They'll be retried on the next run."
+            )
+            break
+
         time.sleep(0.5)
     return analysed_count
 

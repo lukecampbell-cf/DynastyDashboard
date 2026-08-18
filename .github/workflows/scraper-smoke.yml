@@ -1,0 +1,30 @@
+name: Scraper Smoke Test
+
+# Live network check against Rotowire/NFL.com/CBS Sports/Parse Bot — kept out
+# of tests.yml (which runs on every push/PR against mocked data only) so a
+# flaky third-party site doesn't block merges. Runs weekly instead, so
+# selector/API drift shows up as a failed Actions run instead of health.json
+# being the first place anyone notices.
+on:
+  schedule:
+    - cron: "0 13 * * 1"  # Mondays 13:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scraper smoke test
+        env:
+          PARSE_BOT_API: ${{ secrets.PARSE_BOT_API }}
+        run: python scripts/scraper_smoke_test.py

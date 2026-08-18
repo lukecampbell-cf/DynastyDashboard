@@ -185,6 +185,44 @@ class AnalysePlayersBatchTests(unittest.TestCase):
         self.assertNotIn("extra_headers", kwargs)
 
 
+class AnalyseInBatchesCircuitBreakerTests(unittest.TestCase):
+    """
+    Verifies analyse_in_batches() bails after MAX_CONSECUTIVE_BATCH_FAILURES
+    consecutive completely-empty batches (an API-wide outage), instead of
+    burning every remaining batch's full retry budget for the same result.
+    """
+
+    def setUp(self):
+        self._sleep_patch = patch.object(ra.time, "sleep", lambda *_: None)
+        self._sleep_patch.start()
+        self._save_patch = patch.object(ra, "save_analysis_cache", lambda *_: None)
+        self._save_patch.start()
+
+    def tearDown(self):
+        self._save_patch.stop()
+        self._sleep_patch.stop()
+
+    def test_bails_after_max_consecutive_batch_failures(self):
+        players = [make_player(str(i), f"Player {i}") for i in range(ra.BATCH_SIZE * 8)]
+
+        with patch.object(ra, "analyse_players_batch", return_value={}) as mock_batch:
+            analysed = ra.analyse_in_batches(MagicMock(), players, ra.SONNET_MODEL, {})
+
+        self.assertEqual(mock_batch.call_count, ra.MAX_CONSECUTIVE_BATCH_FAILURES)
+        self.assertEqual(analysed, 0)
+
+    def test_a_successful_batch_resets_the_consecutive_failure_count(self):
+        # Two failures, then a success, then two more failures — the success
+        # in between should reset the streak, so this must NOT bail early.
+        batch_results = [{}, {}, {"0": {"trend": "UP"}}, {}, {}]
+        players = [make_player(str(i), f"Player {i}") for i in range(ra.BATCH_SIZE * 5)]
+
+        with patch.object(ra, "analyse_players_batch", side_effect=batch_results) as mock_batch:
+            ra.analyse_in_batches(MagicMock(), players, ra.SONNET_MODEL, {})
+
+        self.assertEqual(mock_batch.call_count, 5)
+
+
 class RunDedupTests(unittest.TestCase):
     """Verifies run() dedupes a player rostered in multiple leagues into a single batch call."""
 
