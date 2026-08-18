@@ -861,5 +861,159 @@ class GeneratedAtLastReusedAtTests(unittest.TestCase):
         self.assertEqual(cache["100"]["last_reused_at"], old_ts)
 
 
+class EmptyLeagueTests(unittest.TestCase):
+    """
+    A league with zero rostered players must never trigger an LLM call for
+    its executive summary — Claude has nothing to work from, and asking it
+    anyway invites speculation (e.g. suggesting roster moves) with no
+    information behind it. See reasoning_agent.EMPTY_LEAGUE_SUMMARY.
+    """
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._path_patch = patch.object(ra, "CACHE_PATH", Path(self._tmpdir.name) / "player_analysis_cache.json")
+        self._path_patch.start()
+        self._summary_path_patch = patch.object(ra, "SUMMARY_CACHE_PATH", Path(self._tmpdir.name) / "league_summary_cache.json")
+        self._summary_path_patch.start()
+
+    def tearDown(self):
+        self._summary_path_patch.stop()
+        self._path_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_empty_league_skips_llm_call_and_uses_deterministic_summary(self):
+        sleeper_data = {
+            "username": "test",
+            "season": "2026",
+            "leagues": [
+                {"league_id": "L1", "league_name": "Empty League", "season": "2026", "players": []},
+            ],
+        }
+        news_data = {"news_by_player": {}}
+
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = AssertionError("should not call the API for an empty league")
+
+        with patch.object(ra, "get_client", return_value=mock_client), \
+             patch.object(ra, "generate_league_summary") as mock_summary:
+            result = ra.run(sleeper_data=sleeper_data, news_data=news_data)
+
+        mock_client.messages.create.assert_not_called()
+        mock_summary.assert_not_called()
+        self.assertEqual(result["leagues"][0]["summary"], ra.EMPTY_LEAGUE_SUMMARY)
+        self.assertEqual(result["leagues"][0]["players"], [])
+        self.assertEqual(result["leagues"][0]["stats"]["total"], 0)
+
+    def test_league_with_players_still_calls_the_summary_generator(self):
+        # Sanity check for the other side of the branch — a league that
+        # DOES have players must not get swept into the empty-league path.
+        player = make_player("100", "Real Player")
+        sleeper_data = {
+            "username": "test",
+            "season": "2026",
+            "leagues": [
+                {"league_id": "L1", "league_name": "Real League", "season": "2026", "players": [player]},
+            ],
+        }
+        news_data = {"news_by_player": {}}
+
+        with patch.object(ra, "get_client", return_value=MagicMock()), \
+             patch.object(ra, "generate_league_summary", return_value="a real summary") as mock_summary:
+            result = ra.run(sleeper_data=sleeper_data, news_data=news_data)
+
+        mock_summary.assert_called_once()
+        self.assertEqual(result["leagues"][0]["summary"], "a real summary")
+
+
+class ChangeStatusTests(unittest.TestCase):
+    """
+    signal_evidence.classify_change_status() wired into run() — a player's
+    change_status should reflect an actual run-over-run signal diff, not
+    just whether an LLM call happened to fire this run.
+    """
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.cache_path = Path(self._tmpdir.name) / "player_analysis_cache.json"
+        self._path_patch = patch.object(ra, "CACHE_PATH", self.cache_path)
+        self._path_patch.start()
+        self.summary_cache_path = Path(self._tmpdir.name) / "league_summary_cache.json"
+        self._summary_path_patch = patch.object(ra, "SUMMARY_CACHE_PATH", self.summary_cache_path)
+        self._summary_path_patch.start()
+        self._sleep_patch = patch.object(ra.time, "sleep", lambda *_: None)
+        self._sleep_patch.start()
+
+    def tearDown(self):
+        self._sleep_patch.stop()
+        self._summary_path_patch.stop()
+        self._path_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_first_appearance_is_material_change_then_unchanged_rerun_is_stable(self):
+        from news_agent import normalise_name
+
+        player = make_player("100", "Repeat Player")
+        sleeper_data = {
+            "username": "test",
+            "season": "2026",
+            "leagues": [
+                {"league_id": "L1", "league_name": "League One", "season": "2026", "players": [player]},
+            ],
+        }
+        # Non-injury news, so the player has real signal (not zero_signal)
+        # but no injury flag — keeps has_zero_signal() False without
+        # requiring an injury-flagged (Sonnet-routed) path.
+        news_data = {
+            "news_by_player": {
+                normalise_name("Repeat Player"): {
+                    "items": [{"headline": "Player signs a new endorsement deal", "source": "test"}],
+                    "source_count": 1,
+                    "has_injury_flag": False,
+                    "injury_status": None,
+                }
+            }
+        }
+        payload = {
+            "100": {"trend": "WATCH", "confidence": "MEDIUM", "summary": "s", "fantasy_impact": "NONE",
+                     "recommendation": "hold", "dynasty_note": None, "contract_note": None,
+                     "roster_status_note": None, "flags": []},
+        }
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = mock_response(payload)
+
+        with patch.object(ra, "get_client", return_value=mock_client), \
+             patch.object(ra, "generate_league_summary", return_value="summary"):
+            first = ra.run(sleeper_data=sleeper_data, news_data=news_data)
+
+        self.assertEqual(first["leagues"][0]["players"][0]["change_status"], "material_change")
+        self.assertEqual(first["change_summary"]["material_change"], 1)
+
+        # Second run, same (unchanged) news/signal — nothing new happened.
+        with patch.object(ra, "get_client", return_value=mock_client), \
+             patch.object(ra, "generate_league_summary", return_value="summary"):
+            second = ra.run(sleeper_data=sleeper_data, news_data=news_data)
+
+        self.assertEqual(second["leagues"][0]["players"][0]["change_status"], "stable")
+        self.assertEqual(second["change_summary"]["stable"], 1)
+
+    def test_zero_signal_player_is_always_no_signal(self):
+        player = make_player("100", "Quiet Player")
+        sleeper_data = {
+            "username": "test",
+            "season": "2026",
+            "leagues": [
+                {"league_id": "L1", "league_name": "League One", "season": "2026", "players": [player]},
+            ],
+        }
+        news_data = {"news_by_player": {}}
+
+        with patch.object(ra, "get_client", return_value=MagicMock()), \
+             patch.object(ra, "generate_league_summary", return_value="summary"):
+            result = ra.run(sleeper_data=sleeper_data, news_data=news_data)
+
+        self.assertEqual(result["leagues"][0]["players"][0]["change_status"], "no_signal")
+        self.assertEqual(result["change_summary"]["no_signal"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

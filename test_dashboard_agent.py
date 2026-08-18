@@ -141,6 +141,78 @@ class SourceAttributionTests(unittest.TestCase):
         self.assertIn("some_new_site", html)
 
 
+class ChangeSummaryBannerTests(unittest.TestCase):
+    def test_renders_expected_counts(self):
+        html = da.render_change_summary_banner({
+            "material_change": 3, "noteworthy_unchanged": 2, "stable": 301, "no_signal": 10,
+        })
+        self.assertIn("3", html)
+        self.assertIn("changed materially", html)
+        self.assertIn("2", html)
+        self.assertIn("may need a look", html)
+        self.assertIn("301", html)
+        self.assertIn("stable", html)
+
+    def test_all_zero_renders_nothing(self):
+        html = da.render_change_summary_banner({
+            "material_change": 0, "noteworthy_unchanged": 0, "stable": 0, "no_signal": 0,
+        })
+        self.assertEqual(html, "")
+
+    def test_missing_keys_default_to_zero_without_crashing(self):
+        html = da.render_change_summary_banner({"material_change": 1})
+        self.assertIn("1", html)
+
+    def test_zero_noteworthy_omits_that_clause(self):
+        html = da.render_change_summary_banner({
+            "material_change": 1, "noteworthy_unchanged": 0, "stable": 5, "no_signal": 0,
+        })
+        self.assertNotIn("may need a look", html)
+
+
+class EvidenceNoteTests(unittest.TestCase):
+    def test_no_evidence_renders_nothing(self):
+        player = make_player(injury_status=None, injury_body_part=None, news_items=[])
+        self.assertEqual(da.evidence_note_html(player), "")
+
+    def test_structured_injury_evidence_renders_a_note(self):
+        player = make_player(injury_status="Questionable", injury_body_part="knee", news_items=[])
+        html = da.evidence_note_html(player)
+        self.assertIn("evidence-note", html)
+        self.assertIn("HIGH confidence", html)
+
+    def test_source_count_and_freshness_appear_when_available(self):
+        from datetime import datetime, timezone
+        recent = datetime.now(timezone.utc).isoformat()
+        player = make_player(injury_status=None, injury_body_part=None, news_items=[
+            {"source": "rotowire", "headline": "Player limited with knee injury", "scraped_at": recent},
+            {"source": "espn", "headline": "Player dealing with knee soreness", "scraped_at": recent},
+        ])
+        html = da.evidence_note_html(player)
+        self.assertIn("2 sources", html)
+        self.assertIn("ago", html)
+
+
+class TradeLinkTests(unittest.TestCase):
+    def test_link_rendered_when_trade_value_and_player_id_present(self):
+        html = da.render_player_card(make_player(player_id="4046", trade_value="Mid 1st"))
+        self.assertIn("trade_calculator.php?player=4046", html)
+        self.assertIn("Explore Trade", html)
+
+    def test_link_omitted_without_trade_value(self):
+        html = da.render_player_card(make_player(player_id="4046", trade_value=None))
+        self.assertNotIn("trade_calculator.php?player=", html)
+
+    def test_link_omitted_without_player_id(self):
+        html = da.render_player_card(make_player(player_id=None, trade_value="Mid 1st"))
+        self.assertNotIn("trade_calculator.php?player=", html)
+
+    def test_malicious_player_id_is_url_encoded_not_raw(self):
+        html = da.render_player_card(make_player(player_id=PAYLOAD, trade_value="Mid 1st"))
+        self.assertNotIn(PAYLOAD, html)
+        self.assertNotIn("<script>", html)
+
+
 class FullDashboardEscapingTests(unittest.TestCase):
     def test_no_raw_payload_anywhere_in_rendered_dashboard(self):
         mock_data = {

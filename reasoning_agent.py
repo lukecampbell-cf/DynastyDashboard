@@ -3,6 +3,23 @@ Reasoning Agent
 Calls the Anthropic API to analyse each player's news and injury status,
 classify dynasty fantasy trend (UP / DOWN / WATCH), and generate
 actionable recommendations.
+
+Module-scope note: this file was reviewed for a reasoning_cache.py /
+reasoning_prompts.py split as this module grew (evidence-bound guardrails,
+material-change classification, empty-league handling). Conclusion: no
+extraction. New logic went into signal_evidence.py and validation.py
+instead (pure, independently testable, no dependency on this module's
+internals), so this file's own size barely grew despite the added
+capability — the cache/prompt-building code that would be the actual
+extraction candidates is unchanged, heavily covered by existing tests that
+patch ~15 of its symbols directly (CACHE_PATH, compute_signal_fingerprint,
+SYSTEM_PROMPT, build_player_block, get_client, ...), and moving it now would
+mean either re-exporting everything back into this namespace (no real
+readability win) or rewriting every one of those patch targets (churn for
+its own sake, not a comprehension improvement). The control flow itself —
+classify signals -> check reusable reasoning -> select required analysis ->
+invoke model -> validate -> persist -> assemble result — is still visible
+end-to-end in run() below.
 """
 
 import anthropic
@@ -17,6 +34,7 @@ from typing import Optional
 from anthropic.types import TextBlockParam
 
 from common import write_json_atomic
+from signal_evidence import classify_change_status, summarise_injury_evidence
 from schemas import (
     AnalysedPlayer,
     AnalysisCacheEntry,
@@ -29,7 +47,7 @@ from schemas import (
     SleeperOutput,
     SummaryCacheEntry,
 )
-from validation import ValidationError, validate_reasoning_result
+from validation import ValidationError, apply_reasoning_guardrails, validate_reasoning_result
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +82,18 @@ SUMMARY_CACHE_PATH = Path(__file__).resolve().parent / "league_summary_cache.jso
 # (age, career-year references, etc.) can go stale even when the inputs
 # didn't change.
 QUIET_REUSE_MAX_AGE = timedelta(days=7)
+
+# Deterministic copy for a league with zero rostered players — no LLM call
+# is made for it (see run()'s Pass 2). Claude has literally nothing to work
+# from in that case, and asking it for an executive summary anyway invites
+# speculation (e.g. suggesting roster moves) with no information behind it.
+EMPTY_LEAGUE_SUMMARY = "No roster data available for this league."
+
+# Sort priority for signal_evidence.classify_change_status()'s buckets —
+# lower sorts first. Materially-changed players surface ahead of merely
+# noteworthy or stable ones within each trend column (see run()'s Pass 2),
+# on the principle that "what's new" matters more than restating state.
+CHANGE_STATUS_PRIORITY = {"material_change": 0, "noteworthy_unchanged": 1, "stable": 2, "no_signal": 3}
 
 # If the Anthropic API is down for a whole run, every batch fails only after
 # burning its own full retry budget (see analyse_players_batch's `retries`),
@@ -338,6 +368,25 @@ CONTRACT DATA, when marked verified, comes from a live Spotrac lookup — treat 
 DRAFT YEAR, when given, comes directly from the league's own player database — treat it as ground truth over your own knowledge of when a player was drafted.
 roster_status_note is a best-effort characterization from your general knowledge, not a lookup against a live depth chart feed — favor honest hedging over fabricated precision.
 
+Each player block includes an INJURY EVIDENCE line summarising what is actually known and how
+strongly. Treat it as a hard ceiling on precision: never state a more specific injury/diagnosis
+than that evidence explicitly supports. If evidence says "knee injury" with no named structural
+diagnosis, do not say "ACL injury," "torn meniscus," or any other specific term — a specific term
+is only appropriate if it is one that already appears in the RECENT NEWS text below. If evidence
+is SINGLE_SOURCE or corroboration is absent, your summary and confidence must reflect that
+uncertainty rather than presenting it as settled fact. Confidence should never exceed what
+INJURY EVIDENCE's own provenance level supports for status/injury-driven assessments.
+
+recommendation strength must be proportional to your own confidence — treat OBSERVATION (the
+facts) → INTERPRETATION (what they mean) → RECOMMENDATION (the action) → CONFIDENCE as a chain
+where a weak first link caps how strong the last one can be:
+- LOW confidence: prefer "Monitor," "Wait for confirmation," "No action yet." Avoid "Buy
+  aggressively," "Sell immediately," "Drop" — those overstate what thin or unconfirmed evidence
+  supports.
+- MEDIUM confidence: measured recommendations are fine — "Hold," "Explore trade value," "Consider
+  buying if discounted," "Monitor before acting." Still avoid extreme/urgent action language.
+- HIGH confidence: a stronger action is appropriate only when the evidence genuinely warrants it.
+
 confidence calibration:
 - HIGH: verified injury/trade/depth-chart news from a named source, or a confirmed roster move with no real ambiguity left.
 - MEDIUM: credible reporting but incomplete — e.g. "week-to-week" with no target return date, or beat reporters giving conflicting takes on a role.
@@ -433,6 +482,28 @@ def truncate_news_field(text: Optional[str]) -> Optional[str]:
     return text[:NEWS_FIELD_MAX_CHARS].rstrip() + "…"
 
 
+def format_injury_evidence_line(evidence: dict) -> str:
+    """
+    Render signal_evidence.summarise_injury_evidence()'s output as a single
+    prompt line — an explicit ceiling on how specific/confident Claude is
+    allowed to be about this player's injury/status, per SYSTEM_PROMPT's
+    instructions. Kept in reasoning_agent.py (not signal_evidence.py) since
+    it's prompt formatting, not evidence computation.
+    """
+    if not evidence.get("claim"):
+        return "INJURY EVIDENCE: none on record — no injury/status signal for this player."
+    parts = [
+        f'claim="{evidence["claim"]}"',
+        f"provenance={evidence['provenance']}",
+        f"confidence_ceiling={evidence['confidence']}",
+    ]
+    if evidence.get("specific_terms_supported"):
+        parts.append(f"specific terms actually supported: {', '.join(evidence['specific_terms_supported'])}")
+    else:
+        parts.append("no specific structural/diagnosis term is supported by any source — do not invent one")
+    return "INJURY EVIDENCE: " + " | ".join(parts)
+
+
 def build_player_block(player: EnrichedPlayer) -> str:
     """
     Build one player's analysis block, tagged with its Sleeper player_id so a
@@ -479,6 +550,8 @@ def build_player_block(player: EnrichedPlayer) -> str:
     else:
         draft_line = "DRAFT YEAR: Unknown — do not guess a specific year, describe experience level generally instead."
 
+    injury_evidence_line = format_injury_evidence_line(summarise_injury_evidence(player))
+
     return f"""=== PLAYER_ID: {pid} ===
 NAME: {name}
 POSITION: {position}
@@ -487,6 +560,7 @@ AGE: {age}
 YEARS EXPERIENCE: {years_exp}
 {draft_line}
 INJURY STATUS: {injury_status}{f' ({injury_body})' if injury_body else ''}
+{injury_evidence_line}
 ROSTER STATUS: {', '.join(roster_context) if roster_context else 'Active roster'}
 
 CONTRACT DATA:
@@ -534,6 +608,7 @@ def analyse_player(client: anthropic.Anthropic, player: EnrichedPlayer, retries:
     attempt fails to parse or validate.
     """
     prompt = build_player_prompt(player)
+    evidence = summarise_injury_evidence(player)
 
     for attempt in range(retries + 1):
         try:
@@ -554,7 +629,8 @@ def analyse_player(client: anthropic.Anthropic, player: EnrichedPlayer, retries:
                 raw = raw.strip()
 
             result = json.loads(raw)
-            return validate_reasoning_result(result, player_id=str(player.get("player_id")))
+            validated = validate_reasoning_result(result, player_id=str(player.get("player_id")))
+            return apply_reasoning_guardrails(validated, evidence)
 
         except (json.JSONDecodeError, ValidationError) as e:
             log.warning(f"Invalid response for {player.get('full_name')}: {e}")
@@ -599,6 +675,7 @@ def analyse_players_batch(
 
     prompt = build_batch_prompt(players)
     expected_ids = {str(p.get("player_id")) for p in players}
+    evidence_by_pid = {str(p.get("player_id")): summarise_injury_evidence(p) for p in players}
     # Generous per-player output budget, capped at the standard (non-beta) ceiling.
     max_tokens = min(8192, 350 * len(players) + 500)
 
@@ -627,7 +704,8 @@ def analyse_players_batch(
                 if pid not in expected_ids:
                     continue
                 try:
-                    results[pid] = validate_reasoning_result(value, player_id=pid)
+                    validated = validate_reasoning_result(value, player_id=pid)
+                    results[pid] = apply_reasoning_guardrails(validated, evidence_by_pid.get(pid, {}))
                 except ValidationError as e:
                     log.warning(f"Dropping invalid reasoning result for player_id={pid}: {e}")
 
@@ -793,6 +871,11 @@ def run(sleeper_data: SleeperOutput, news_data: NewsOutput) -> ReasoningOutput:
     summary_cache_hits = 0
     summary_cache_misses = 0
 
+    # Deduped (by player_id, same as unique_players below) change_status
+    # tally, for the dashboard's "what's changed since last time" header —
+    # a player rostered in multiple leagues should only count once.
+    change_status_by_pid: dict[str, str] = {}
+
     result: ReasoningOutput = {
         "username": sleeper_data.get("username"),
         "season": sleeper_data.get("season"),
@@ -801,7 +884,8 @@ def run(sleeper_data: SleeperOutput, news_data: NewsOutput) -> ReasoningOutput:
             "trending_up": [],
             "trending_down": [],
             "watch_list": [],
-        }
+        },
+        "change_summary": {},  # replaced with real counts once known, near the end of run()
     }
 
     news_by_player = news_data.get("news_by_player", {})
@@ -834,6 +918,14 @@ def run(sleeper_data: SleeperOutput, news_data: NewsOutput) -> ReasoningOutput:
     quiet_reuses = 0
     zero_signal_skips = 0
     now_iso = datetime.now(timezone.utc).isoformat()
+    # Snapshot each player's signal fingerprint as it stood BEFORE this run
+    # touches analysis_cache[pid], for classify_change_status() in Pass 2 —
+    # "what changed since last time" has to compare against the prior
+    # value, not whatever this run just wrote.
+    previous_signals: dict[str, Optional[dict]] = {}
+    for pid in unique_players:
+        prior_entry = analysis_cache.get(pid)
+        previous_signals[pid] = prior_entry.get("signal") if prior_entry else None
     for pid, player in unique_players.items():
         cached_entry = analysis_cache.get(pid)
         if is_cache_entry_fresh(cached_entry):
@@ -899,32 +991,49 @@ def run(sleeper_data: SleeperOutput, news_data: NewsOutput) -> ReasoningOutput:
                 "flags": [],
             }
             player_result["generated_at"] = cached_entry.get("generated_at") if cached_entry else None
+            change_status = classify_change_status(
+                previous_signals.get(pid),
+                compute_signal_fingerprint(player),
+                is_zero_signal=has_zero_signal(player),
+                has_injury_flag=bool(player.get("has_injury_flag")),
+                trend=player_result["reasoning"].get("trend"),
+            )
+            player_result["change_status"] = change_status
+            change_status_by_pid[pid] = change_status
 
             analysed.append(player_result)
 
         # Generate league summary, reusing the cached one if nothing about
         # the league's trend/injury picture has changed since last time.
+        # A league with zero rostered players skips the LLM call entirely —
+        # zero information should produce zero inference, not a speculative
+        # summary about roster construction Claude has no basis for.
         league_id = league["league_id"]
-        summary_fingerprint = compute_summary_fingerprint(analysed)
-        cached_summary_entry = summary_cache.get(league_id)
-        if cached_summary_entry and cached_summary_entry.get("fingerprint") == summary_fingerprint:
-            summary = cached_summary_entry["summary"]
-            summary_cache_hits += 1
+        if not enriched_players:
+            summary = EMPTY_LEAGUE_SUMMARY
         else:
-            summary = generate_league_summary(client, league_name, analysed)
-            summary_cache[league_id] = {"summary": summary, "fingerprint": summary_fingerprint}
-            summary_cache_misses += 1
+            summary_fingerprint = compute_summary_fingerprint(analysed)
+            cached_summary_entry = summary_cache.get(league_id)
+            if cached_summary_entry and cached_summary_entry.get("fingerprint") == summary_fingerprint:
+                summary = cached_summary_entry["summary"]
+                summary_cache_hits += 1
+            else:
+                summary = generate_league_summary(client, league_name, analysed)
+                summary_cache[league_id] = {"summary": summary, "fingerprint": summary_fingerprint}
+                summary_cache_misses += 1
 
-        # Sort into trend buckets
-        trending_up = sorted(
-            [p for p in analysed if p["reasoning"]["trend"] == "UP"],
-            key=lambda p: {"HIGH": 0, "MEDIUM": 1, "LOW": 2}.get(p["reasoning"]["confidence"], 2)
-        )
-        trending_down = sorted(
-            [p for p in analysed if p["reasoning"]["trend"] == "DOWN"],
-            key=lambda p: {"HIGH": 0, "MEDIUM": 1, "LOW": 2}.get(p["reasoning"]["confidence"], 2)
-        )
-        watch_list = [p for p in analysed if p["reasoning"]["trend"] == "WATCH"]
+        # Sort into trend buckets — materially-changed players float to the
+        # top of each column (what's actually new since last look matters
+        # more than restating everyone's static state), confidence order
+        # preserved as the secondary key within that.
+        def _bucket_sort_key(p: AnalysedPlayer) -> tuple:
+            change_rank = CHANGE_STATUS_PRIORITY.get(p.get("change_status") or "", 9)
+            confidence_rank = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}.get(p["reasoning"]["confidence"], 2)
+            return (change_rank, confidence_rank)
+
+        trending_up = sorted([p for p in analysed if p["reasoning"]["trend"] == "UP"], key=_bucket_sort_key)
+        trending_down = sorted([p for p in analysed if p["reasoning"]["trend"] == "DOWN"], key=_bucket_sort_key)
+        watch_list = sorted([p for p in analysed if p["reasoning"]["trend"] == "WATCH"], key=_bucket_sort_key)
 
         league_result: LeagueResult = {
             "league_id": league["league_id"],
@@ -964,6 +1073,13 @@ def run(sleeper_data: SleeperOutput, news_data: NewsOutput) -> ReasoningOutput:
                 result["global_trends"]["watch_list"].append(p)
                 seen_watch.add(p["full_name"])
 
+    # Deduped-by-player tally for the dashboard's "what changed since last
+    # time" header — see change_status_by_pid above.
+    change_summary = {"material_change": 0, "noteworthy_unchanged": 0, "stable": 0, "no_signal": 0}
+    for status in change_status_by_pid.values():
+        change_summary[status] = change_summary.get(status, 0) + 1
+    result["change_summary"] = change_summary
+
     save_analysis_cache(analysis_cache)
     save_summary_cache(summary_cache)
     log.info(
@@ -971,7 +1087,8 @@ def run(sleeper_data: SleeperOutput, news_data: NewsOutput) -> ReasoningOutput:
         f"{quiet_reuses} reused (no new signal), {zero_signal_skips} templated "
         f"(no news/injury, no LLM call), {cache_misses} freshly analysed "
         f"({sonnet_misses} via Sonnet, {haiku_misses} via Haiku). "
-        f"League summaries: {summary_cache_hits} cached, {summary_cache_misses} regenerated."
+        f"League summaries: {summary_cache_hits} cached, {summary_cache_misses} regenerated. "
+        f"Change summary: {change_summary}."
     )
     return result
 

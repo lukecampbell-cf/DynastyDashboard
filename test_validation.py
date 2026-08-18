@@ -11,7 +11,13 @@ Or via unittest: ./venv/bin/python -m unittest test_validation -v
 
 import unittest
 
-from validation import ValidationError, validate_reasoning_result
+from validation import (
+    ValidationError,
+    apply_reasoning_guardrails,
+    enforce_injury_evidence_bound,
+    enforce_recommendation_confidence,
+    validate_reasoning_result,
+)
 
 
 def make_valid() -> dict:
@@ -172,6 +178,147 @@ class TextLengthTests(unittest.TestCase):
         payload["dynasty_note"] = "x" * 401
         with self.assertRaises(ValidationError):
             validate_reasoning_result(payload, player_id="100")
+
+
+def make_evidence(**overrides) -> dict:
+    evidence = {
+        "claim": "knee injury",
+        "provenance": "STRUCTURED",
+        "confidence": "HIGH",
+        "corroborated": False,
+        "source_count": 0,
+        "specific_terms_supported": [],
+        "latest_source_at": None,
+    }
+    evidence.update(overrides)
+    return evidence
+
+
+class InjuryEvidenceGuardTests(unittest.TestCase):
+    """
+    enforce_injury_evidence_bound() — the P0 guard against Claude escalating
+    an unsupported injury claim into a more specific one, e.g. the brief's
+    own "knee injury" -> "ACL injury" example.
+    """
+
+    def test_unsupported_specific_term_is_rewritten(self):
+        result = make_valid()
+        result["summary"] = "Suffered a torn ACL and will require surgery."
+        evidence = make_evidence(claim="knee injury", specific_terms_supported=[])
+
+        fixed = enforce_injury_evidence_bound(result, evidence)
+
+        self.assertNotIn("acl", fixed["summary"].lower())
+        self.assertIn("knee injury", fixed["summary"])
+
+    def test_supported_specific_term_passes_through_untouched(self):
+        # The source itself explicitly named ACL — Claude is allowed to say it.
+        result = make_valid()
+        result["summary"] = "Confirmed torn ACL, will miss the rest of the season."
+        evidence = make_evidence(claim="ACL injury", specific_terms_supported=["acl", "torn"])
+
+        fixed = enforce_injury_evidence_bound(result, evidence)
+
+        self.assertEqual(fixed["summary"], result["summary"])
+
+    def test_unsupported_term_caps_confidence_at_evidence_ceiling(self):
+        result = make_valid()
+        result["confidence"] = "HIGH"
+        result["summary"] = "Diagnosed with a torn meniscus."
+        evidence = make_evidence(confidence="LOW", specific_terms_supported=[])
+
+        fixed = enforce_injury_evidence_bound(result, evidence)
+
+        self.assertEqual(fixed["confidence"], "LOW")
+
+    def test_no_violation_leaves_result_untouched(self):
+        result = make_valid()
+        evidence = make_evidence(specific_terms_supported=[])
+        fixed = enforce_injury_evidence_bound(result, evidence)
+        self.assertEqual(fixed, result)
+
+    def test_dynasty_note_with_unsupported_term_is_cleared_not_summary(self):
+        result = make_valid()
+        result["dynasty_note"] = "Long-term outlook depends on ACL recovery timeline."
+        evidence = make_evidence(specific_terms_supported=[])
+
+        fixed = enforce_injury_evidence_bound(result, evidence)
+
+        self.assertIsNone(fixed["dynasty_note"])
+        # summary wasn't the offending field, so it's left alone.
+        self.assertEqual(fixed["summary"], result["summary"])
+
+
+class RecommendationConfidenceGuardTests(unittest.TestCase):
+    """
+    enforce_recommendation_confidence() — the P0 guard binding recommendation
+    strength to confidence: LOW/MEDIUM can't carry an extreme action.
+    """
+
+    def test_low_confidence_strong_action_is_replaced(self):
+        result = make_valid()
+        result["confidence"] = "LOW"
+        result["recommendation"] = "Sell immediately before value craters."
+
+        fixed = enforce_recommendation_confidence(result)
+
+        self.assertNotIn("immediately", fixed["recommendation"].lower())
+
+    def test_medium_confidence_strong_action_is_replaced(self):
+        result = make_valid()
+        result["confidence"] = "MEDIUM"
+        result["recommendation"] = "Buy aggressively while the price is low."
+
+        fixed = enforce_recommendation_confidence(result)
+
+        self.assertNotIn("aggressively", fixed["recommendation"].lower())
+
+    def test_high_confidence_strong_action_is_untouched(self):
+        result = make_valid()
+        result["confidence"] = "HIGH"
+        result["recommendation"] = "Sell immediately before value craters."
+
+        fixed = enforce_recommendation_confidence(result)
+
+        self.assertEqual(fixed["recommendation"], result["recommendation"])
+
+    def test_measured_recommendation_is_untouched_regardless_of_confidence(self):
+        result = make_valid()
+        result["confidence"] = "LOW"
+        result["recommendation"] = "Monitor for further updates."
+
+        fixed = enforce_recommendation_confidence(result)
+
+        self.assertEqual(fixed["recommendation"], result["recommendation"])
+
+
+class ApplyGuardrailsCompositionTests(unittest.TestCase):
+    def test_evidence_downgrade_feeds_into_recommendation_guard(self):
+        # HIGH confidence + unsupported term -> confidence drops to the
+        # evidence ceiling (LOW) -> the now-LOW confidence should then also
+        # block the strong-action recommendation, even though HIGH alone
+        # would have allowed it through.
+        result = make_valid()
+        result["confidence"] = "HIGH"
+        result["summary"] = "Torn ACL confirmed."
+        result["recommendation"] = "Sell immediately."
+        evidence = make_evidence(confidence="LOW", specific_terms_supported=[])
+
+        fixed = apply_reasoning_guardrails(result, evidence)
+
+        self.assertEqual(fixed["confidence"], "LOW")
+        self.assertNotIn("immediately", fixed["recommendation"].lower())
+
+    def test_fully_supported_high_confidence_result_is_untouched(self):
+        result = make_valid()
+        result["confidence"] = "HIGH"
+        result["summary"] = "Confirmed torn ACL, out for the season."
+        result["recommendation"] = "Sell immediately given the season-ending injury."
+        evidence = make_evidence(confidence="HIGH", specific_terms_supported=["acl", "torn", "season-ending"])
+
+        fixed = apply_reasoning_guardrails(result, evidence)
+
+        self.assertEqual(fixed, result)
 
 
 if __name__ == "__main__":

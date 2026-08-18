@@ -11,9 +11,11 @@ from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from common import write_text_atomic
 from schemas import AnalysedPlayer, LeagueResult, ReasoningOutput
+from signal_evidence import summarise_injury_evidence
 
 log = logging.getLogger(__name__)
 
@@ -134,6 +136,51 @@ def source_attribution_html(news_items: list) -> str:
     return f'<div class="source-attribution">📎 <span class="source-attribution-label">Sources:</span> {"".join(chips)}</div>'
 
 
+def relative_time(iso_timestamp: Optional[str]) -> Optional[str]:
+    """"3h ago" / "2d ago" style relative age from an ISO timestamp, for the
+    evidence-note line below — restrained, human phrasing rather than a raw
+    timestamp or any internal cache-age terminology. None if unparseable."""
+    if not iso_timestamp:
+        return None
+    try:
+        ts = datetime.fromisoformat(iso_timestamp)
+    except ValueError:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    seconds = (datetime.now(timezone.utc) - ts).total_seconds()
+    if seconds < 0:
+        return "just now"
+    if seconds < 3600:
+        return f"{max(1, int(seconds // 60))}m ago"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)}h ago"
+    return f"{int(seconds // 86400)}d ago"
+
+
+def evidence_note_html(player: AnalysedPlayer) -> str:
+    """
+    A single restrained line surfacing how strong the player's injury/status
+    evidence actually is — confidence, source count, freshness — so a
+    high-impact claim is inspectable without exposing internal terminology
+    (fingerprint/cache/model/TTL). Omitted entirely when there's nothing to
+    attest to (signal_evidence.summarise_injury_evidence()'s provenance is
+    NONE) — restraint matters as much as the information itself here.
+    """
+    evidence = summarise_injury_evidence(player)
+    if evidence["provenance"] == "NONE":
+        return ""
+
+    parts = [f"{esc(evidence['confidence'])} confidence"]
+    if evidence["source_count"] > 0:
+        parts.append(f"{evidence['source_count']} source{'s' if evidence['source_count'] != 1 else ''}")
+    age = relative_time(evidence.get("latest_source_at"))
+    if age:
+        parts.append(f"updated {esc(age)}")
+
+    return f'<div class="evidence-note">🔍 {" · ".join(parts)}</div>'
+
+
 def render_player_card(player: AnalysedPlayer) -> str:
     reasoning = player.get("reasoning", {})
     trend = reasoning.get("trend", "WATCH")
@@ -182,6 +229,14 @@ def render_player_card(player: AnalysedPlayer) -> str:
     if trade_value:
         trade_value_html = f'<span class="trade-value-tag">💰 {esc(trade_value)}</span>'
 
+    trade_link_html = ""
+    player_id = player.get("player_id")
+    if trade_value and player_id:
+        trade_link_html = (
+            f'<a class="trade-link" href="trade_calculator.php?player={quote(str(player_id))}" '
+            f'target="_blank" rel="noopener">Explore Trade &rarr;</a>'
+        )
+
     dynasty_html = ""
     if dynasty_note:
         dynasty_html = f'<div class="dynasty-note">📈 {esc(dynasty_note)}</div>'
@@ -195,6 +250,7 @@ def render_player_card(player: AnalysedPlayer) -> str:
         roster_status_html = f'<div class="roster-status-note">🧩 {esc(roster_status_note)}</div>'
 
     source_attribution = source_attribution_html(news_items)
+    evidence_note = evidence_note_html(player)
 
     position_esc = esc(position)
 
@@ -220,10 +276,12 @@ def render_player_card(player: AnalysedPlayer) -> str:
         {dynasty_html}
         {contract_html}
         {roster_status_html}
+        {evidence_note}
         {source_attribution}
         <div class="card-footer">
           {flag_chips(flags)}
           {trade_value_html}
+          {trade_link_html}
           {sources_html}
           <span class="age-tag">Age {esc(age)}</span>
         </div>
@@ -340,6 +398,31 @@ def render_global_trends_section(global_up: list[AnalysedPlayer], global_down: l
   </section>"""
 
 
+def render_change_summary_banner(change_summary: dict) -> str:
+    """
+    "Since the previous analysis: N changed materially · M may need a look ·
+    K stable" — a plain-language digest of signal_evidence.classify_change_status()
+    counts (see reasoning_agent.run()'s change_summary), so opening the
+    dashboard answers "what's new since I last looked?" in one line instead
+    of requiring a scan of every card. No internal terminology (fingerprint/
+    cache/etc.) — just counts. Omitted when there's nothing to report yet
+    (e.g. before the very first run has produced any history).
+    """
+    material = change_summary.get("material_change", 0)
+    noteworthy = change_summary.get("noteworthy_unchanged", 0)
+    stable = change_summary.get("stable", 0)
+    no_signal = change_summary.get("no_signal", 0)
+    if material + noteworthy + stable + no_signal == 0:
+        return ""
+
+    parts = [f'<strong>{esc(material)}</strong> changed materially']
+    if noteworthy:
+        parts.append(f'<strong>{esc(noteworthy)}</strong> may need a look')
+    parts.append(f'<strong>{esc(stable)}</strong> stable')
+
+    return f'<div class="change-summary-banner">Since the previous analysis: {" · ".join(parts)}</div>'
+
+
 def render_html(reasoning_data: ReasoningOutput) -> str:
     """Render the full HTML dashboard."""
     username = esc(reasoning_data.get("username", os.environ.get("SLEEPER_USERNAME", "your_username")))
@@ -355,6 +438,7 @@ def render_html(reasoning_data: ReasoningOutput) -> str:
     global_up = reasoning_data.get("global_trends", {}).get("trending_up", [])
     global_down = reasoning_data.get("global_trends", {}).get("trending_down", [])
     global_trends_section = render_global_trends_section(global_up, global_down)
+    change_summary_banner = render_change_summary_banner(reasoning_data.get("change_summary", {}))
 
     total_leagues = len(leagues)
     total_players = sum(l.get("stats", {}).get("total", 0) for l in leagues)
@@ -395,6 +479,7 @@ def render_html(reasoning_data: ReasoningOutput) -> str:
 {league_nav}
 
 <main class="main">
+  {change_summary_banner}
   {global_trends_section}
   {league_sections if league_sections else '<p style="color:var(--muted);text-align:center;padding:60px 0;">No league data available. Run the pipeline to populate.</p>'}
 </main>
@@ -466,6 +551,7 @@ if __name__ == "__main__":
         "season": "2025",
         "leagues": [],
         "global_trends": {"trending_up": [], "trending_down": [], "watch_list": []},
+        "change_summary": {},
     }
     html = render_html(mock_data)
     test_path = "/tmp/dashboard_test.html"

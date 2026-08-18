@@ -21,6 +21,8 @@
 
 declare(strict_types=1);
 
+require __DIR__ . '/trade_calculator_lib.php';
+
 $dataDir = getenv('DASHBOARD_DATA_DIR') ?: __DIR__;
 
 /**
@@ -93,6 +95,11 @@ function build_pick_tiers(array $tradeValues): array {
 $playerPool = $playerDirectory !== null ? build_player_pool($playerDirectory) : ['sf' => [], '1qb' => []];
 $pickTiers = $tradeValues !== null ? build_pick_tiers($tradeValues) : ['sf' => [], '1qb' => []];
 $fetchedAt = $tradeValues['fetched_at'] ?? null;
+
+// Deep-link support for dashboard_agent.py's "Explore Trade" card link
+// (?player=<id>&format=<sf|1qb>) — see trade_calculator_lib.php for the
+// validation this goes through before anything is trusted.
+$preselect = resolve_preselect($playerPool, $_GET['format'] ?? null, $_GET['player'] ?? null);
 
 $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP;
 ?>
@@ -478,8 +485,8 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP;
   estimate — treat those as directional, not authoritative.</div>
 
   <div class="format-toggle" role="group" aria-label="Value format">
-    <button type="button" id="fmt-sf" class="active" onclick="switchFormat('sf')">Superflex</button>
-    <button type="button" id="fmt-1qb" onclick="switchFormat('1qb')">1QB</button>
+    <button type="button" id="fmt-sf" class="<?php echo $preselect['format'] === 'sf' ? 'active' : ''; ?>" onclick="switchFormat('sf')">Superflex</button>
+    <button type="button" id="fmt-1qb" class="<?php echo $preselect['format'] === '1qb' ? 'active' : ''; ?>" onclick="switchFormat('1qb')">1QB</button>
   </div>
 
   <div class="trade-grid">
@@ -531,8 +538,12 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP;
     const VERDICT_CLOSE_YES_MIN = <?php echo json_encode(VERDICT_CLOSE_YES_MIN); ?>;
     const VERDICT_CLOSE_NO_MIN = <?php echo json_encode(VERDICT_CLOSE_NO_MIN); ?>;
     const VERDICT_NO_MIN = <?php echo json_encode(VERDICT_NO_MIN); ?>;
+    // Already validated server-side against the loaded player pool (see
+    // trade_calculator_lib.php's resolve_preselect()) — playerId is either
+    // null or a real key in PLAYERS[format], never unvalidated user input.
+    const PRESELECT = <?php echo json_encode($preselect, $jsonFlags); ?>;
 
-    let activeFormat = 'sf';
+    let activeFormat = PRESELECT.format;
     const sides = { A: [], B: [] }; // {type: 'player'|'pick', id or label}
 
     function currentPlayers() { return PLAYERS[activeFormat] || {}; }
@@ -740,6 +751,10 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP;
     renderSide('B');
     wireSearch('A');
     wireSearch('B');
+
+    if (PRESELECT.playerId) {
+      addAsset('A', { type: 'player', id: PRESELECT.playerId });
+    }
   </script>
 
 <?php endif; ?>

@@ -152,6 +152,21 @@ body {
 }
 
 /* ── GLOBAL TRENDS ── */
+.change-summary-banner {
+  background: var(--navy-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--bears-orange);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.change-summary-banner strong {
+  color: var(--bears-orange);
+}
+
 .global-trends {
   margin-bottom: 32px;
 }
@@ -483,6 +498,12 @@ body {
   font-style: italic;
 }
 
+.evidence-note {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
 .source-attribution {
   display: flex;
   align-items: center;
@@ -543,6 +564,18 @@ a.source-chip:hover {
   padding: 2px 8px;
   font-weight: 600;
 }
+
+.trade-link {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--bears-orange);
+  text-decoration: none;
+  border: 1px solid var(--bears-dark);
+  border-radius: 10px;
+  padding: 2px 8px;
+  transition: background 0.15s, color 0.15s;
+}
+.trade-link:hover { background: var(--bears-orange); color: #fff; }
 
 .source-count {
   font-size: 10px;

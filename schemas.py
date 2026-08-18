@@ -232,9 +232,15 @@ class SummaryCacheEntry(TypedDict):
 
 class AnalysedPlayer(EnrichedPlayer, total=False):
     """An EnrichedPlayer after reasoning_agent.run() attaches its verdict —
-    dashboard_agent.render_player_card()'s actual input shape."""
+    dashboard_agent.render_player_card()'s actual input shape.
+
+    change_status is signal_evidence.classify_change_status()'s output —
+    "material_change" | "noteworthy_unchanged" | "stable" | "no_signal" —
+    answering "what's actually new since the previous analysis" from a pure
+    fingerprint diff, with no additional LLM call involved."""
     reasoning: ReasoningResult
     generated_at: Optional[str]
+    change_status: str
 
 
 class LeagueStats(TypedDict):
@@ -265,11 +271,18 @@ class GlobalTrends(TypedDict):
 
 class ReasoningOutput(TypedDict):
     """reasoning_agent.run()'s top-level return value — dashboard_agent.py's
-    entire input."""
+    entire input.
+
+    change_summary is a deduped-by-player (a player rostered in multiple
+    leagues counts once) tally of AnalysedPlayer.change_status across every
+    league — {"material_change": N, "noteworthy_unchanged": N, "stable": N,
+    "no_signal": N} — the counts dashboard_agent.py's header banner is
+    built from."""
     username: Optional[str]
     season: Optional[str]
     leagues: list[LeagueResult]
     global_trends: GlobalTrends
+    change_summary: dict[str, int]
 
 
 # ── Health (orchestrator.py writes, health_agent.py reads/writes) ────────

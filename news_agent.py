@@ -450,6 +450,17 @@ def scrape_cbssports_nfl() -> tuple[list[NewsItem], Optional[str]]:
     return news_items, None
 
 
+# Case-insensitive substring markers for "this news item is about an injury"
+# — used by cross_reference() below to set has_injury_flag, and reused by
+# signal_evidence.py to decide which news items count as injury evidence for
+# a player (source corroboration, freshness) without re-deriving the list.
+INJURY_KEYWORDS = [
+    "injured", "injury", "out", "questionable", "doubtful", "ir",
+    "placed on", "limited", "did not practice", "dnp", "hamstring",
+    "knee", "ankle", "shoulder", "concussion", "surgery",
+]
+
+
 def cross_reference(all_items: list[NewsItem]) -> dict[str, NewsByPlayerEntry]:
     """
     Group news items by player name across sources.
@@ -484,12 +495,7 @@ def cross_reference(all_items: list[NewsItem]) -> dict[str, NewsByPlayerEntry]:
             item.get("injury_status", ""),
         ])).lower()
 
-        injury_keywords = [
-            "injured", "injury", "out", "questionable", "doubtful", "ir",
-            "placed on", "limited", "did not practice", "dnp", "hamstring",
-            "knee", "ankle", "shoulder", "concussion", "surgery", "surgery",
-        ]
-        if any(kw in text for kw in injury_keywords):
+        if any(kw in text for kw in INJURY_KEYWORDS):
             grouped[key]["has_injury_flag"] = True
 
         # Capture highest-confidence injury status

@@ -353,6 +353,46 @@ persisted; in a batched call, one player's invalid entry is dropped without affe
 rest of that batch's valid results. `json.loads()` succeeding only proves the response is
 valid JSON, not that it matches the schema Claude was asked to follow.
 
+**Injury/status provenance and evidence-bound recommendations.** The governing principle:
+*the strength of a recommendation must never exceed the strength of the evidence behind
+it.* Before a player's block is even built, `signal_evidence.summarise_injury_evidence()`
+computes a deterministic (no LLM) provenance snapshot from facts already on the player —
+Sleeper's own structured `injury_status`/`injury_body_part` (`STRUCTURED`, the strongest
+tier), 2+ independent news sources hitting an injury keyword (`CORROBORATED`), a single
+source (`SINGLE_SOURCE`), or nothing at all (`NONE`) — plus which specific structural terms
+(ACL, MCL, meniscus, fracture, ...) actually appear in that evidence. This is spliced into
+the prompt as an `INJURY EVIDENCE` line, and `SYSTEM_PROMPT` instructs Claude never to
+state a more specific diagnosis than that evidence supports, and to scale recommendation
+strength to its own confidence (LOW → "Monitor," MEDIUM → "Hold"/"Explore trade value,"
+HIGH → a stronger call only when genuinely warranted).
+
+That instruction is also enforced in code, not just prompt wording — `validation.py`'s
+`apply_reasoning_guardrails()` runs on every validated result before it's cached: if
+`summary`/`dynasty_note`/`roster_status_note` names a specific injury term the evidence
+doesn't support (e.g. a plain "knee injury" coming back as "ACL injury"), the offending
+field is rewritten to a deterministic evidence-grounded sentence and confidence is capped
+at the evidence's own ceiling — the rest of the analysis is left intact. Separately, if
+`recommendation` uses extreme action language ("sell immediately," "buy aggressively,"
+"drop") under LOW or MEDIUM confidence, it's replaced with a confidence-appropriate
+default; HIGH confidence is never touched. Both guards are deterministic and unit-tested
+(`test_validation.py`) without needing a live API call.
+
+**Empty leagues get no LLM call.** A league with zero rostered players skips
+`generate_league_summary()` entirely and renders `EMPTY_LEAGUE_SUMMARY` ("No roster data
+available for this league.") — zero information should produce zero inference, not a
+speculative summary about roster construction Claude has no basis for.
+
+**Material-change classification.** Each player's fingerprint (`compute_signal_fingerprint()`,
+see above) is compared against the one stored from their *previous* analysis — captured
+before this run touches the cache — to classify what's actually new via
+`signal_evidence.classify_change_status()`: `material_change` (no prior fingerprint, or it
+moved), `noteworthy_unchanged` (unchanged, but still injury-flagged or trending UP/DOWN),
+`stable` (unchanged, WATCH, no injury flag), or `no_signal` (nothing to react to at all —
+see `has_zero_signal()`). No additional LLM calls are involved; it's a pure comparison
+against data already computed for the quiet-reuse cache logic. Stamped onto each
+`AnalysedPlayer` as `change_status`, and tallied (deduped by player) into `change_summary`
+on the top-level `ReasoningOutput` — the numbers the dashboard's header banner reads.
+
 **Cache schema (`player_analysis_cache.json`)** — each entry carries `generated_at`
 (when the LLM genuinely produced this analysis) and `last_reused_at` (when it was most
 recently served again without a fresh call) as two separate timestamps, not one. Only
@@ -380,6 +420,20 @@ by default) with a quick-jump nav bar above the leagues that expands and scrolls
 target league on click — keeps the page navigable as a single static "app" without
 needing a build step or JS framework.
 
+A header banner ("Since the previous analysis: **3** changed materially · **2** may need
+a look · **301** stable") summarises `reasoning_agent.py`'s `change_summary` in plain
+language — no cache/fingerprint/model terminology — so opening the dashboard answers
+"what's new since I last looked?" without scanning every card; it's omitted entirely when
+there's nothing to report. Within each trend column, `material_change` players sort ahead
+of merely noteworthy or stable ones (confidence order preserved as the secondary key).
+
+A player card with real injury/status evidence (`signal_evidence.summarise_injury_evidence()`,
+provenance other than `NONE`) also gets a small restrained line — e.g. "🔍 MEDIUM
+confidence · 2 sources · updated 3h ago" — so a high-impact claim is inspectable without
+turning every card into an observability console; it's omitted when there's nothing to
+attest to. A card with a trade value also gets an "Explore Trade →" link straight into the
+trade calculator with that player preselected (see below).
+
 ---
 
 ## Trade Calculator (`trade_calculator.php`)
@@ -401,6 +455,19 @@ pre-filled draft; nothing sends automatically.
 
 Requires PHP on the host — see [SETUP.md](SETUP.md#trade-calculator-trade_calculatorphp)
 for deployment.
+
+**Deep-linked from the dashboard.** A player card's "Explore Trade →" link is
+`trade_calculator.php?player=<id>&format=<sf|1qb>`. The query pair is resolved by
+`trade_calculator_lib.php`'s `resolve_preselect()` before anything is trusted: `format`
+must exactly match `sf`/`1qb` or it falls back to `sf`, and `player` is only honoured if
+it's an actual existing key in that format's already-loaded player pool — an unknown,
+malformed, or injection-shaped id is silently dropped, never echoed back raw. The
+validated result is embedded client-side the same way `PLAYERS`/`PICK_TIERS` already are
+(`JSON_HEX_*`-flagged `json_encode()`), and preselection reuses the page's existing
+`addAsset()` — no new client-side trust surface. Covered by
+`scripts/test_trade_calculator_validation.php` (plain `php` CLI assertions — this repo has
+no PHP test framework, matching `scripts/scraper_smoke_test.py`'s own "run manually, not
+part of the unit suite" convention on the Python side).
 
 ---
 

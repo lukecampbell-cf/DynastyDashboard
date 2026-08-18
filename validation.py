@@ -17,6 +17,7 @@ that same convention instead of introducing a new one for a single call site.
 from typing import Any, Optional
 
 from schemas import ReasoningResult
+from signal_evidence import SPECIFIC_INJURY_TERMS
 
 TREND_VALUES = {"UP", "DOWN", "WATCH"}
 CONFIDENCE_VALUES = {"HIGH", "MEDIUM", "LOW"}
@@ -125,3 +126,125 @@ def validate_reasoning_result(raw: Any, *, player_id: str) -> ReasoningResult:
         "roster_status_note": roster_status_note,
         "flags": flags,
     }
+
+
+# ── Product-reliability guardrails ─────────────────────────────────────────
+#
+# validate_reasoning_result() above only checks that Claude's response
+# satisfies the *schema* (right keys, right types, right enum values). The
+# functions below run afterward and check the response against the actual
+# facts available (signal_evidence.py) and against a fixed policy — "the
+# strength of the recommendation must never exceed the strength of the
+# evidence supporting it." Both are deterministic, code-enforced guarantees
+# rather than something left to prompt wording alone, since prompt
+# instructions alone can't be regression-tested without a live API call.
+
+
+def _unsupported_specific_terms(text: Optional[str], supported: set) -> list:
+    """Which SPECIFIC_INJURY_TERMS appear in `text` that aren't in `supported`
+    (the terms signal_evidence.py actually found in this player's own
+    evidence) — i.e. terms Claude stated with nothing behind them."""
+    if not text:
+        return []
+    text_lower = text.lower()
+    return [term for term in SPECIFIC_INJURY_TERMS if term in text_lower and term not in supported]
+
+
+CONFIDENCE_RANK = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+
+
+def enforce_injury_evidence_bound(result: ReasoningResult, evidence: dict) -> ReasoningResult:
+    """
+    Guards against Claude stating a more specific injury/diagnosis than the
+    player's actual evidence supports (signal_evidence.summarise_injury_evidence)
+    — e.g. upgrading a plain "knee injury" into "ACL injury" with nothing
+    behind it. Checked deterministically against the generated text rather
+    than relying on the system prompt alone, so the guarantee holds even if
+    a response doesn't follow that instruction.
+
+    On violation: only the offending field(s) are replaced — `summary` with
+    a deterministic evidence-grounded sentence, `dynasty_note`/
+    `roster_status_note` cleared if they're the ones carrying the
+    unsupported term — and confidence is capped at the evidence's own
+    ceiling. The rest of the analysis (trend, flags, an unaffected
+    recommendation) is left intact rather than discarding an otherwise-good
+    result over one oversold phrase.
+    """
+    supported = set(evidence.get("specific_terms_supported") or [])
+    hits = {
+        "summary": _unsupported_specific_terms(result.get("summary"), supported),
+        "dynasty_note": _unsupported_specific_terms(result.get("dynasty_note"), supported),
+        "roster_status_note": _unsupported_specific_terms(result.get("roster_status_note"), supported),
+    }
+    if not any(hits.values()):
+        return result
+
+    fallback_claim = evidence.get("claim") or "an unspecified status concern"
+    updated: ReasoningResult = dict(result)  # type: ignore[assignment]
+    if hits["summary"]:
+        updated["summary"] = (
+            f"Reported {fallback_claim} — a more specific diagnosis is not confirmed by available sources."
+        )
+    if hits["dynasty_note"]:
+        updated["dynasty_note"] = None
+    if hits["roster_status_note"]:
+        updated["roster_status_note"] = None
+
+    ceiling = evidence.get("confidence", "LOW")
+    if CONFIDENCE_RANK.get(updated.get("confidence", "LOW"), 2) < CONFIDENCE_RANK.get(ceiling, 2):
+        updated["confidence"] = ceiling  # type: ignore[typeddict-item]
+
+    return updated
+
+
+# Deliberately small and curated — these are the phrasings the brief calls
+# out as overstating LOW/MEDIUM-confidence evidence, not a general profanity/
+# sentiment filter. Matched case-insensitively as substrings.
+STRONG_ACTION_PHRASES = [
+    "sell immediately", "sell now", "sell him now", "sell her now",
+    "buy aggressively", "buy now aggressively",
+    "drop him", "drop her", "drop them",
+    "cut him", "cut her", "cut them",
+    "must sell", "must buy", "must drop",
+]
+
+# Deterministic fallback recommendations for a confidence tier whose
+# generated recommendation overstepped STRONG_ACTION_PHRASES — phrased to
+# match the brief's own examples for that tier ("Monitor" for LOW, "Hold"/
+# "Explore trade value" for MEDIUM).
+RECOMMENDATION_DEFAULTS = {
+    "LOW": "Monitor for further updates before acting.",
+    "MEDIUM": "Hold and monitor — consider exploring trade value if the situation clarifies.",
+}
+
+
+def enforce_recommendation_confidence(result: ReasoningResult) -> ReasoningResult:
+    """
+    Bounds recommendation strength by the result's own confidence: LOW/
+    MEDIUM confidence cannot carry an extreme action ("sell immediately,"
+    "buy aggressively," "drop") — those are reserved for HIGH confidence,
+    where the evidence genuinely warrants a stronger call. Only
+    `recommendation` is replaced; the rest of the analysis is unaffected.
+    """
+    confidence = result.get("confidence")
+    if confidence not in RECOMMENDATION_DEFAULTS:
+        return result
+    recommendation = result.get("recommendation") or ""
+    if not any(phrase in recommendation.lower() for phrase in STRONG_ACTION_PHRASES):
+        return result
+    return {**result, "recommendation": RECOMMENDATION_DEFAULTS[confidence]}
+
+
+def apply_reasoning_guardrails(result: ReasoningResult, evidence: dict) -> ReasoningResult:
+    """
+    Single entry point reasoning_agent.py calls once per already schema-
+    validated result (validate_reasoning_result() has already run) —
+    enforces both product-reliability guarantees: an injury/status claim
+    can't exceed its evidence, and a recommendation's strength can't exceed
+    its own confidence. Order matters here: if the evidence guard downgrades
+    confidence, the recommendation guard below checks against that
+    (possibly lowered) confidence, not the original.
+    """
+    result = enforce_injury_evidence_bound(result, evidence)
+    result = enforce_recommendation_confidence(result)
+    return result
