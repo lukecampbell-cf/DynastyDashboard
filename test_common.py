@@ -14,6 +14,7 @@ Or via unittest: ./venv/bin/python -m unittest test_common -v
 
 import json
 import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -68,6 +69,21 @@ class WriteJsonAtomicTests(unittest.TestCase):
         content = self.path.read_text()
         self.assertLess(content.index('"a"'), content.index('"z"'))
 
+    def test_file_is_world_readable_regardless_of_umask(self):
+        # tempfile.mkstemp() creates its temp file mode 0600 (owner-only),
+        # and os.replace() carries that straight through — so under a
+        # restrictive umask (e.g. a root cron job with umask 077, which is
+        # exactly what produced a 600 root:root index.html a web server
+        # couldn't read), the published file would otherwise come out
+        # unreadable by anyone else. This must hold regardless of umask.
+        old_umask = os.umask(0o077)
+        try:
+            common.write_json_atomic(self.path, {"a": 1})
+        finally:
+            os.umask(old_umask)
+        mode = stat.S_IMODE(os.stat(self.path).st_mode)
+        self.assertEqual(mode, 0o644)
+
 
 class WriteTextAtomicTests(unittest.TestCase):
     def setUp(self):
@@ -89,6 +105,15 @@ class WriteTextAtomicTests(unittest.TestCase):
                 common.write_text_atomic(self.path, "<html>truncated garba")
 
         self.assertEqual(self.path.read_text(), "<html>original good page</html>")
+
+    def test_file_is_world_readable_regardless_of_umask(self):
+        old_umask = os.umask(0o077)
+        try:
+            common.write_text_atomic(self.path, "<html>hi</html>")
+        finally:
+            os.umask(old_umask)
+        mode = stat.S_IMODE(os.stat(self.path).st_mode)
+        self.assertEqual(mode, 0o644)
 
 
 if __name__ == "__main__":

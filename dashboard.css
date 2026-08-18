@@ -500,6 +500,7 @@ body {
 
 .evidence-note {
   font-size: 11px;
+  font-style: italic;
   color: var(--muted);
   margin-bottom: 8px;
 }
@@ -566,16 +567,23 @@ a.source-chip:hover {
 }
 
 .trade-link {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--bears-orange);
+  display: inline-flex;
+  align-items: center;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #fff;
   text-decoration: none;
-  border: 1px solid var(--bears-dark);
-  border-radius: 10px;
-  padding: 2px 8px;
-  transition: background 0.15s, color 0.15s;
+  background: var(--bears-orange);
+  border: none;
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
 }
-.trade-link:hover { background: var(--bears-orange); color: #fff; }
+.trade-link:hover { background: var(--bears-dark); }
 
 .source-count {
   font-size: 10px;

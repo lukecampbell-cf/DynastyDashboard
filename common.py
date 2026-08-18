@@ -90,6 +90,16 @@ def _write_atomic(path: Path, write_body) -> None:
     handle `f` — callers supply this instead of raw text/bytes so json.dump
     can stream directly into the file rather than building the full string
     in memory first.
+
+    tempfile.mkstemp() creates its temp file mode 0600 (owner-only) as a
+    security default, and os.replace() carries that mode straight through
+    to the final path — a plain open(path, "w") would instead land on the
+    umask-derived default (typically 644). Every file this writes is meant
+    to be read by a different process than the one writing it (nginx/PHP
+    serving index.html or reading the JSON caches, often as a different
+    user than the cron job that ran the pipeline), so the explicit chmod
+    below restores that expectation rather than silently locking readers
+    out the moment atomic writes were introduced.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -99,6 +109,7 @@ def _write_atomic(path: Path, write_body) -> None:
             write_body(f)
             f.flush()
             os.fsync(f.fileno())
+        os.chmod(tmp_name, 0o644)
         os.replace(tmp_name, path)
     except Exception:
         try:
