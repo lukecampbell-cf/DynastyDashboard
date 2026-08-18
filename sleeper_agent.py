@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-from common import USER_AGENT, normalise_name
+from common import USER_AGENT, is_timestamp_stale, normalise_name, write_json_atomic
 from schemas import LeagueRecord, PlayerCacheEntry, ResolvedPlayer, SleeperOutput
 import player_directory_agent
 import trade_value_agent
@@ -383,23 +383,17 @@ def load_player_cache() -> dict[str, PlayerCacheEntry]:
 def save_player_cache(player_cache: dict[str, PlayerCacheEntry]) -> None:
     """Persist the per-player cache."""
     try:
-        with open(PLAYER_CACHE_PATH, "w") as f:
-            json.dump(player_cache, f, indent=2, sort_keys=True)
+        write_json_atomic(PLAYER_CACHE_PATH, player_cache, sort_keys=True)
     except Exception as e:
         log.error(f"Failed to write player cache: {e}")
 
 
-def is_stale(timestamp: Optional[str], max_age: timedelta) -> bool:
-    """True if timestamp is missing, unparseable, or older than max_age."""
-    if not timestamp:
-        return True
-    try:
-        ts = datetime.fromisoformat(timestamp)
-    except ValueError:
-        return True
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
-    return datetime.now(timezone.utc) - ts > max_age
+# Thin re-export: contract_agent.py imports this as `from sleeper_agent
+# import is_stale` (it needs the same per-timestamp freshness check sleeper_
+# agent itself uses for player_cache.json's details_updated_at, just against
+# a different field/threshold), and the logic itself lives in common.py
+# alongside is_stale()'s mtime-based sibling, so it's not reimplemented here.
+is_stale = is_timestamp_stale
 
 
 def extract_draft_year(sleeper_player: dict) -> Optional[int]:
@@ -468,6 +462,7 @@ def run() -> SleeperOutput:
         "season": None,
         "user": None,
         "leagues": [],
+        "trade_values_degraded": [],
     }
 
     # Step 1: Resolve user
@@ -498,6 +493,7 @@ def run() -> SleeperOutput:
     # trade_value_agent.py), reused across every dynasty league regardless
     # of scoring format (only sf/1qb split matters, decided per league below).
     rosteraudit_data = trade_value_agent.run()
+    result["trade_values_degraded"] = rosteraudit_data.get("degraded_formats", [])
 
     # Full player directory (every fantasy-relevant NFL player + trade value,
     # not just your rostered ones) for trade_calculator.php — refreshed at

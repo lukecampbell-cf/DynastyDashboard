@@ -34,7 +34,7 @@ import news_agent
 import reasoning_agent
 import dashboard_agent
 import health_agent
-from schemas import NewsOutput, ReasoningOutput, SleeperOutput
+from schemas import NewsOutput, PipelineResult, ReasoningOutput, SleeperOutput, StageResult
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,11 +75,18 @@ def check_environment(dry_run: bool = False) -> bool:
     return True
 
 
-def run_pipeline(dry_run: bool = False, debug: bool = False) -> bool:
+def run_pipeline(dry_run: bool = False, debug: bool = False) -> PipelineResult:
     """
     Execute the full agent pipeline.
     Season is resolved dynamically by the Sleeper agent.
-    Returns True on success, False on failure.
+
+    Returns a PipelineResult: {"success": bool, "stages": [StageResult, ...]}.
+    Each stage is reported success/degraded/failed (see schemas.StageResult)
+    rather than just the plain ok/error `steps` dict — which is still built
+    alongside `stages` and passed to health_agent.record_run() unchanged,
+    since health.json's on-disk schema isn't part of this change. A stage
+    marked degraded=True still counts toward overall success; only a stage
+    the pipeline treats as fatal (sleeper, reasoning) sets success=False.
 
     Tracks a per-step ok/error record in `steps` as it goes, and always
     writes health_agent.record_run(steps, ...) before returning — on every
@@ -97,6 +104,11 @@ def run_pipeline(dry_run: bool = False, debug: bool = False) -> bool:
     log.info("=" * 60)
 
     steps: dict = {}
+    stages: list[StageResult] = []
+
+    def finish(success: bool) -> PipelineResult:
+        health_agent.record_run(steps, success)
+        return {"success": success, "stages": stages}
 
     # ── STEP 1: Sleeper Agent ──────────────────────────────────
     log.info("STEP 1/5: Sleeper Agent")
@@ -110,11 +122,23 @@ def run_pipeline(dry_run: bool = False, debug: bool = False) -> bool:
             total_players = sum(len(l.get("players", [])) for l in sleeper_data["leagues"])
             log.info(f"Sleeper: season={season}, {league_count} league(s), {total_players} total players")
         steps["sleeper"] = {"ok": True, "error": None}
+        stages.append({"name": "sleeper", "success": True, "degraded": False, "message": None})
+
+        # Trade values are fetched inside sleeper_agent.run() (it's the
+        # module that already calls trade_value_agent), but reported here as
+        # their own stage — see SleeperOutput.trade_values_degraded.
+        degraded_formats = sleeper_data.get("trade_values_degraded", [])
+        if degraded_formats:
+            message = f"{', '.join(degraded_formats)} refresh failed; cached data retained"
+            log.warning(f"Trade values: {message}")
+            stages.append({"name": "trade_values", "success": True, "degraded": True, "message": message})
+        else:
+            stages.append({"name": "trade_values", "success": True, "degraded": False, "message": None})
     except Exception as e:
         log.error(f"Sleeper agent failed: {e}")
         steps["sleeper"] = {"ok": False, "error": str(e)}
-        health_agent.record_run(steps, False)
-        return False
+        stages.append({"name": "sleeper", "success": False, "degraded": False, "message": str(e)})
+        return finish(False)
 
     # Collect all players across leagues once, deduped by Sleeper player_id —
     # reused by both the contract lookup and news matching below.
@@ -137,11 +161,13 @@ def run_pipeline(dry_run: bool = False, debug: bool = False) -> bool:
             for p in league.get("players", []):
                 p["contract"] = contracts_by_pid.get(str(p.get("player_id")))
         steps["contract"] = {"ok": True, "error": None}
+        stages.append({"name": "contract", "success": True, "degraded": False, "message": None})
     except Exception as e:
         log.error(f"Contract agent failed: {e}")
         steps["contract"] = {"ok": False, "error": str(e)}
         # Non-fatal — reasoning falls back to hedged general-knowledge notes
         log.warning("Continuing pipeline without fresh contract data.")
+        stages.append({"name": "contract", "success": True, "degraded": True, "message": str(e)})
 
     # ── STEP 3: News Agent ─────────────────────────────────────
     log.info("STEP 3/5: News Agent")
@@ -152,6 +178,10 @@ def run_pipeline(dry_run: bool = False, debug: bool = False) -> bool:
         if failed_sources:
             log.warning(f"News sources with errors this run: {list(failed_sources)}")
         steps["news"] = {"ok": True, "error": None, "sources": news_data.get("source_status", {})}
+        stages.append({
+            "name": "news", "success": True, "degraded": bool(failed_sources),
+            "message": f"sources with errors: {list(failed_sources)}" if failed_sources else None,
+        })
     except Exception as e:
         log.error(f"News agent failed: {e}")
         steps["news"] = {"ok": False, "error": str(e), "sources": {}}
@@ -165,6 +195,7 @@ def run_pipeline(dry_run: bool = False, debug: bool = False) -> bool:
             "scraped_at": datetime.now(timezone.utc).isoformat(),
         }
         log.warning("Continuing pipeline with empty news data.")
+        stages.append({"name": "news", "success": True, "degraded": True, "message": str(e)})
 
     # ── STEP 4: Reasoning Agent ────────────────────────────────
     log.info("STEP 4/5: Reasoning Agent")
@@ -176,13 +207,14 @@ def run_pipeline(dry_run: bool = False, debug: bool = False) -> bool:
         )
         log.info(f"Reasoning: {total_analysed} players analysed across {len(reasoning_data['leagues'])} league(s)")
         steps["reasoning"] = {"ok": True, "error": None}
+        stages.append({"name": "reasoning", "success": True, "degraded": False, "message": None})
         if debug:
             save_pipeline_data(sleeper_data, news_data, reasoning_data)
     except Exception as e:
         log.error(f"Reasoning agent failed: {e}")
         steps["reasoning"] = {"ok": False, "error": str(e)}
-        health_agent.record_run(steps, False)
-        return False
+        stages.append({"name": "reasoning", "success": False, "degraded": False, "message": str(e)})
+        return finish(False)
 
     # ── STEP 5: Dashboard Agent ────────────────────────────────
     log.info("STEP 5/5: Dashboard Agent")
@@ -190,18 +222,21 @@ def run_pipeline(dry_run: bool = False, debug: bool = False) -> bool:
     try:
         success = dashboard_agent.run(reasoning_data=reasoning_data, output_path=output_path)
         steps["dashboard"] = {"ok": success, "error": None if success else "write_dashboard failed"}
+        stages.append({
+            "name": "dashboard", "success": success, "degraded": False,
+            "message": None if success else "write_dashboard failed",
+        })
         if success:
             elapsed = round(time.time() - started_at, 1)
             log.info(f"Pipeline complete in {elapsed}s → {output_path}")
             if dry_run:
                 log.info(f"DRY RUN: Open file://{output_path} in your browser to preview.")
-        health_agent.record_run(steps, success)
-        return success
+        return finish(success)
     except Exception as e:
         log.error(f"Dashboard agent failed: {e}")
         steps["dashboard"] = {"ok": False, "error": str(e)}
-        health_agent.record_run(steps, False)
-        return False
+        stages.append({"name": "dashboard", "success": False, "degraded": False, "message": str(e)})
+        return finish(False)
 
 
 def save_pipeline_data(sleeper_data: SleeperOutput, news_data: NewsOutput, reasoning_data: ReasoningOutput):
@@ -229,5 +264,5 @@ if __name__ == "__main__":
     if not check_environment(dry_run=args.dry_run):
         sys.exit(1)
 
-    success = run_pipeline(dry_run=args.dry_run, debug=args.debug)
-    sys.exit(0 if success else 1)
+    result = run_pipeline(dry_run=args.dry_run, debug=args.debug)
+    sys.exit(0 if result["success"] else 1)

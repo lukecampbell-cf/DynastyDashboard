@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from common import write_json_atomic
 from schemas import CacheStatus, HealthRecord, StepStatus
 
 log = logging.getLogger(__name__)
@@ -119,8 +120,7 @@ def record_run(steps: dict[str, StepStatus], pipeline_success: bool) -> HealthRe
     }
 
     try:
-        with open(HEALTH_PATH, "w") as f:
-            json.dump(health, f, indent=2)
+        write_json_atomic(HEALTH_PATH, health)
     except OSError as e:
         log.error(f"Failed to write {HEALTH_PATH.name}: {e}")
 

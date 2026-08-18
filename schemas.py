@@ -111,11 +111,21 @@ class LeagueRecord(TypedDict):
 
 
 class SleeperOutput(TypedDict):
-    """sleeper_agent.run()'s top-level return value."""
+    """sleeper_agent.run()'s top-level return value.
+
+    trade_values_degraded is trade_value_agent.run()'s own degraded_formats
+    passed through — the list of value formats ("sf"/"1qb") that fell back
+    to cached (or empty) data this run instead of a fresh RosterAudit fetch.
+    Surfaced here (rather than orchestrator.py calling trade_value_agent
+    directly) because the fetch itself happens inside sleeper_agent.run(),
+    which is what actually calls trade_value_agent.run(); this lets
+    orchestrator.py report a distinct "trade values" pipeline stage without
+    restructuring which module owns that call."""
     username: str
     season: Optional[str]
     user: Optional[dict]
     leagues: list[LeagueRecord]
+    trade_values_degraded: list[str]
 
 
 # ── News (news_agent.py) ──────────────────────────────────────────────────
@@ -199,10 +209,18 @@ class AnalysisCacheEntry(TypedDict):
     """One entry in reasoning_agent's player_analysis_cache.json, keyed by
     Sleeper player_id. "signal" is compute_signal_fingerprint()'s output —
     deliberately untyped here (dict) since it's an opaque comparison key,
-    not a shape anything reads field-by-field."""
+    not a shape anything reads field-by-field.
+
+    generated_at and last_reused_at are deliberately separate: generated_at
+    is set only when the LLM genuinely produced this analysis, and is what
+    QUIET_REUSE_MAX_AGE is measured against. last_reused_at is bumped every
+    time a quiet reuse serves this entry without a fresh call — if reuse
+    also bumped generated_at, an entry that keeps quietly reusing could
+    never age past QUIET_REUSE_MAX_AGE, defeating the forced-refresh."""
     full_name: str
     reasoning: ReasoningResult
-    last_analyzed: str
+    generated_at: str
+    last_reused_at: str
     signal: dict
 
 
@@ -216,7 +234,7 @@ class AnalysedPlayer(EnrichedPlayer, total=False):
     """An EnrichedPlayer after reasoning_agent.run() attaches its verdict —
     dashboard_agent.render_player_card()'s actual input shape."""
     reasoning: ReasoningResult
-    last_analyzed: Optional[str]
+    generated_at: Optional[str]
 
 
 class LeagueStats(TypedDict):
@@ -283,3 +301,27 @@ class HealthRecord(TypedDict):
     steps: dict[str, StepStatus]
     stale_caches: list[CacheStatus]
     overall_ok: bool
+
+
+# ── Pipeline result (orchestrator.py) ─────────────────────────────────────
+
+class StageResult(TypedDict, total=False):
+    """
+    One pipeline stage's outcome, for orchestrator.run_pipeline()'s
+    returned PipelineResult. Finer-grained than StepStatus above (which
+    health.json persists as-is, unchanged by this): success/degraded/failed
+    rather than just ok/error, so a caller can tell "ran, but fell back to
+    stale cached data" (degraded=True) apart from a full failure without
+    parsing log lines. Purely in-process/return-value — health.json's own
+    on-disk schema is intentionally left alone.
+    """
+    name: str
+    success: bool
+    degraded: bool
+    message: Optional[str]
+
+
+class PipelineResult(TypedDict):
+    """orchestrator.run_pipeline()'s return value."""
+    success: bool
+    stages: list[StageResult]

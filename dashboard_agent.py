@@ -12,6 +12,7 @@ from html import escape
 from pathlib import Path
 from typing import Optional
 
+from common import write_text_atomic
 from schemas import AnalysedPlayer, LeagueResult, ReasoningOutput
 
 log = logging.getLogger(__name__)
@@ -430,7 +431,7 @@ def write_dashboard(html: str, output_path: str = OUTPUT_PATH) -> bool:
             shutil.copy2(path, backup)
             log.info(f"Previous dashboard backed up to {backup}")
 
-        path.write_text(html, encoding="utf-8")
+        write_text_atomic(path, html)
         log.info(f"Dashboard written to {output_path}")
         return True
 

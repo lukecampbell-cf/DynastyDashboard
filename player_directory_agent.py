@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Optional
 
 import trade_value_agent
-from common import is_stale, normalise_name
+from common import is_stale, normalise_name, write_json_atomic
 
 log = logging.getLogger(__name__)
 
@@ -69,8 +69,7 @@ def load_player_directory() -> Optional[dict]:
 
 def save_player_directory(data: dict) -> None:
     try:
-        with open(PLAYER_DIRECTORY_PATH, "w") as f:
-            json.dump(data, f, indent=2, sort_keys=True)
+        write_json_atomic(PLAYER_DIRECTORY_PATH, data, sort_keys=True)
         log.info(f"Saved player directory to {PLAYER_DIRECTORY_PATH.name}")
     except OSError as e:
         log.error(f"Failed to write {PLAYER_DIRECTORY_PATH.name}: {e}")

@@ -128,12 +128,15 @@ dynasty-dashboard/
 ├── contract_agent.py     ← Spotrac contract lookup per player (4-week cache)
 ├── news_agent.py         ← scrapes injury/trade news
 ├── reasoning_agent.py    ← Anthropic AI analysis
+├── validation.py         ← runtime schema check on Claude's structured output
+├── common.py             ← shared helpers: atomic JSON/HTML writes, staleness checks
 ├── dashboard_agent.py    ← renders and writes HTML
 ├── health_agent.py       ← writes health.json every run; `python health_agent.py` for a summary
 ├── trade_calculator.php  ← standalone trade fairness tool, reads the JSON caches directly
 ├── player_cache.json     ← per-player bio + contract cache (self-building, safe to delete)
-├── trade_values.json     ← RosterAudit dynasty trade values (weekly)
+├── trade_values.json     ← RosterAudit dynasty trade values, sf & 1qb refreshed independently (weekly)
 ├── player_directory.json ← every fantasy-relevant NFL player + trade value (weekly, powers trade_calculator.php)
+├── player_analysis_cache.json ← per-player Claude reasoning cache (see README's Reasoning Agent section)
 ├── health.json            ← last run status, per-step/per-source errors, stale-cache flags
 ├── requirements.txt
 ├── .env                  ← your API key (never commit)

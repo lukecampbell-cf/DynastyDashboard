@@ -147,8 +147,10 @@ rather than a per-player bio cache):
 {
   "fetched_at": "2026-08-09T12:45:56Z",
   "source": "rosteraudit.com dynasty rankings (via Parse Bot)",
+  "degraded_formats": [],
   "formats": {
     "sf": {
+      "fetched_at": "2026-08-09T12:45:56Z",
       "players": {
         "9509": { "name": "Bijan Robinson", "position": "RB", "team": "ATL", "value": 10000, "rank_overall": 1, "tier": "1" }
       },
@@ -158,17 +160,27 @@ rather than a per-player bio cache):
         { "label": "Mid 1st", "min_value": 2832 }
       ]
     },
-    "1qb": { "...": "same shape, valued for 1-QB startups" }
+    "1qb": { "...": "same shape, valued for 1-QB startups, own fetched_at" }
   }
 }
 ```
 
 Refreshed at most **once a week** — checked via the file's mtime, the same pattern
 `fetch_fantasypros_rankings()` uses for its 24h cache, just a longer window since
-dynasty trade value doesn't move nearly as fast as weekly rankings do. A failed refresh
-falls back to the existing stale file rather than blanking out trade values for a week;
-if no file exists yet either, every dynasty player just falls back to the FantasyPros
-rank heuristic until the next successful fetch.
+dynasty trade value doesn't move nearly as fast as weekly rankings do.
+
+Each format (`sf`, `1qb`) is fetched and evaluated **independently**, with its own
+`fetched_at`: if one format's fetch comes back empty (API error, non-success status) but
+the other succeeds, only the failed format falls back to its own previously cached data —
+the successful format is still saved fresh. This matters because both formats used to be
+merged into one result before checking whether the refresh as a whole was empty, so a
+clean fetch for one format could make a genuinely failed fetch for the *other* format look
+non-empty and let it silently overwrite its own valid cached data. `degraded_formats`
+lists which format(s), if any, fell back this run — `orchestrator.py` surfaces this as its
+own "trade values" pipeline stage (see Health output below). If a format has never been
+successfully fetched at all (first-ever run, or a sustained outage), it simply stays empty
+and every dynasty player in that format falls back to the FantasyPros rank heuristic until
+the next successful fetch.
 
 Which value format (`sf` vs `1qb`) applies is decided per league in
 `determine_value_format()`, from that league's `roster_positions` — a `SUPER_FLEX` slot
@@ -334,6 +346,26 @@ as ground truth rather than infer a player's draft class itself, which is what k
 best-effort characterization from general knowledge — not a lookup against a live depth
 chart feed — so treat it as directional, not authoritative.
 
+Every parsed response is validated against the schema above (`validation.py`) before it
+can reach the cache or a dashboard card — an invalid `trend`/`confidence` value, a missing
+required field, a wrong type, or oversized text is rejected and logged rather than
+persisted; in a batched call, one player's invalid entry is dropped without affecting the
+rest of that batch's valid results. `json.loads()` succeeding only proves the response is
+valid JSON, not that it matches the schema Claude was asked to follow.
+
+**Cache schema (`player_analysis_cache.json`)** — each entry carries `generated_at`
+(when the LLM genuinely produced this analysis) and `last_reused_at` (when it was most
+recently served again without a fresh call) as two separate timestamps, not one. Only
+`generated_at` counts toward `QUIET_REUSE_MAX_AGE` (7 days): a player whose signal never
+changes gets served from cache indefinitely on quiet reuse, but the write-up itself is
+still forced to regenerate every 7 days regardless, since reuse alone must never be able
+to extend how long a single analysis stays in service. Cache entries also carry a
+`signal` fingerprint (`compute_signal_fingerprint()`) covering everything that could
+materially change the analysis — team, injury/roster status, trade value tier, contract
+span, and news headlines — so any of those changing invalidates quiet reuse even before
+the 7-day ceiling. Old entries written before this split (a single `last_analyzed`
+field) are migrated in memory on load, with no separate migration step needed.
+
 ---
 
 ## 5. Dashboard Agent (`dashboard_agent.py`)
@@ -380,12 +412,20 @@ for deployment.
 | `/tmp/fantasypros_rankings_{format}.json` | FantasyPros ranks for one format | 24h |
 | `player_cache.json` (project root) | Per-player bio/id details (name, team, age, draft year, FantasyPros id) | 2 weeks per player |
 | `player_cache.json` → `.<id>.contract` | Spotrac contract terms per player | 4 weeks per player |
-| `trade_values.json` (project root) | RosterAudit dynasty trade values + pick tier chart, sf & 1qb | 1 week |
+| `trade_values.json` (project root) | RosterAudit dynasty trade values + pick tier chart, sf & 1qb (each format refreshed/preserved independently) | 1 week per format |
 | `player_directory.json` (project root) | Every fantasy-relevant NFL player + trade value (sf & 1qb), for trade_calculator.php | 1 week |
+| `player_analysis_cache.json` (project root) | Per-player Claude reasoning, keyed by Sleeper player_id — `generated_at`/`last_reused_at` split, see step 4 | 7 days per player (`generated_at` only) |
 | `league_summary_cache.json` (project root) | Per-league Haiku executive summary, keyed by league_id | regenerated only when trend/injury counts change |
 | `pipeline.log` | Orchestrator run log | append-only |
 | `health.json` (project root) | Last run status, per-step (and per-news-source) errors, stale-cache flags | rewritten every run |
 | `debug/*.json` | Intermediate stage output, only with `--debug` | per run |
+
+Every persistent JSON cache above (plus the published dashboard HTML) is written
+atomically (`common.write_json_atomic()`/`write_text_atomic()`): the new content lands in
+a temp sibling file first, then swaps into place with `os.replace()`. A process
+interrupted mid-write leaves the previous complete file untouched instead of a truncated
+or corrupted one — this matters most for the published `index.html`, where a web server
+could otherwise briefly serve a half-written page.
 
 ---
 
@@ -411,6 +451,15 @@ for deployment.
 
 Read it directly as JSON, or run `python health_agent.py` for a human-readable summary of
 the last recorded run.
+
+`health.json`'s on-disk shape above is unchanged, but `run_pipeline()` itself now returns
+a structured `{"success": bool, "stages": [...]}` (see `schemas.PipelineResult`/
+`StageResult`) rather than a plain bool — each stage reports `success`/`degraded`/
+`message`, so a caller (or the log output) can tell "ran, but fell back to stale cached
+data" apart from an outright failure without parsing log lines. Trade values get their own
+stage, separate from `sleeper` — e.g. RosterAudit's SF format succeeding while 1QB falls
+back to cache shows up as `sleeper: ok` and `trade_values: degraded`, not one bundled
+Sleeper-step failure.
 
 ---
 

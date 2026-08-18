@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Union
 
-from common import is_stale, parsebot_headers
+from common import is_stale, parsebot_headers, write_json_atomic
 
 log = logging.getLogger(__name__)
 
@@ -197,26 +197,19 @@ def load_trade_values() -> Optional[dict]:
 
 def save_trade_values(data: dict) -> None:
     try:
-        with open(TRADE_VALUES_PATH, "w") as f:
-            json.dump(data, f, indent=2)
+        write_json_atomic(TRADE_VALUES_PATH, data)
         log.info(f"Saved RosterAudit trade values to {TRADE_VALUES_PATH}")
     except Exception as e:
         log.error(f"Failed to write {TRADE_VALUES_PATH.name}: {e}")
 
 
-def fetch_all() -> dict:
-    """Fetch both value formats fresh from RosterAudit and build their tier charts."""
-    formats = {}
-    for format_key in VALUE_FORMATS:
-        players, picks = fetch_dynasty_rankings(format_key)
-        formats[format_key] = {
-            "players": players,
-            "tier_chart": build_tier_chart(picks),
-        }
+def fetch_format(format_key: str) -> dict:
+    """Fetch one value format fresh from RosterAudit and build its tier chart, stamped with its own fetched_at."""
+    players, picks = fetch_dynasty_rankings(format_key)
     return {
         "fetched_at": datetime.now(timezone.utc).isoformat(),
-        "source": "rosteraudit.com dynasty rankings (via Parse Bot)",
-        "formats": formats,
+        "players": players,
+        "tier_chart": build_tier_chart(picks),
     }
 
 
@@ -224,29 +217,72 @@ def run(force: bool = False) -> dict:
     """
     Main entry point. Returns the RosterAudit trade value data, refreshing
     from the API only if trade_values.json is missing or older than a week
-    (or force=True). Falls back to a stale cache (rather than an empty one)
-    if a refresh is attempted but the API call fails, so a transient outage
-    doesn't blank out trade values for a whole week.
+    (or force=True).
+
+    Each format (sf, 1qb) is fetched and evaluated independently: a format
+    whose fresh fetch comes back with zero players (API error, non-success
+    status, or a genuinely empty response) retains its own previously
+    cached data instead of being overwritten with an empty result — the
+    other format's success/failure has no bearing on it. This matters
+    because both formats used to be merged into one combined result before
+    the empty/non-empty check ran, so one format's clean fetch could make
+    the whole refresh look "non-empty" and let the *other* format's failed,
+    empty fetch silently replace its own valid cached data. A format with no
+    cache to fall back to (first-ever run, or never successfully fetched)
+    simply stays empty for this run — sleeper_agent.derive_trade_value()
+    already falls back to FantasyPros ranks per player when RosterAudit has
+    no value for them.
+
+    Returned dict carries `degraded_formats`: the list of format keys (if
+    any) that fell back to cached or empty data this run, for callers that
+    want to report a degraded-but-successful refresh distinctly from a
+    fully-fresh one (see orchestrator.py's pipeline stage reporting).
     """
     cached = load_trade_values()
+    cached_formats = (cached or {}).get("formats", {})
 
     if not force and cached is not None and not is_stale(TRADE_VALUES_PATH, RA_FRESHNESS_SECONDS):
         log.info(f"Using cached RosterAudit trade values from {cached.get('fetched_at')}")
+        cached.setdefault("degraded_formats", [])
         return cached
 
-    log.info("Fetching fresh RosterAudit dynasty rankings...")
-    fresh = fetch_all()
+    log.info("Refreshing RosterAudit dynasty rankings (per format)...")
+    merged_formats = {}
+    degraded_formats = []
+    any_fresh = False
 
-    total_players = sum(len(f["players"]) for f in fresh["formats"].values())
-    if total_players == 0:
-        if cached is not None:
-            log.warning("RosterAudit fetch returned no players — keeping stale cached trade values.")
-            return cached
-        log.warning("RosterAudit fetch returned no players and no cache exists — trade values will fall back to FantasyPros ranks.")
-        return fresh
+    for format_key in VALUE_FORMATS:
+        fresh = fetch_format(format_key)
+        if fresh["players"]:
+            merged_formats[format_key] = fresh
+            any_fresh = True
+            continue
 
-    save_trade_values(fresh)
-    return fresh
+        cached_entry = cached_formats.get(format_key)
+        if cached_entry and cached_entry.get("players"):
+            log.warning(f"RosterAudit {format_key} refresh returned no players — keeping stale cached {format_key} data.")
+            merged_formats[format_key] = cached_entry
+        else:
+            log.warning(
+                f"RosterAudit {format_key} refresh returned no players and no cache exists — "
+                f"trade values will fall back to FantasyPros ranks for {format_key}."
+            )
+            merged_formats[format_key] = fresh
+        degraded_formats.append(format_key)
+
+    result = {
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "source": "rosteraudit.com dynasty rankings (via Parse Bot)",
+        "formats": merged_formats,
+        "degraded_formats": degraded_formats,
+    }
+
+    if any_fresh:
+        save_trade_values(result)
+    else:
+        log.warning("RosterAudit refresh failed for every format — not overwriting trade_values.json; will retry next run.")
+
+    return result
 
 
 if __name__ == "__main__":
