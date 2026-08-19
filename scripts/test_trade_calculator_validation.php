@@ -75,9 +75,20 @@ foreach (['SF', '2qb', 'drop table players;--', '', null] as $badFormat) {
     check('invalid format falls back to sf: ' . var_export($badFormat, true), $r['format'] === 'sf');
 }
 
-// No query params at all -> no preselect, default format.
+// No query params at all -> no preselect, default format, and no complaint:
+// nobody asked for a player, so there's nothing to report as missing.
 $r = resolve_preselect($playerPool, null, null);
 check('no params: no preselect, default format', $r['format'] === 'sf' && $r['playerId'] === null);
+check('no params: notFound stays false', $r['notFound'] === false);
+$r = resolve_preselect($playerPool, 'sf', '');
+check('empty player param: notFound stays false', $r['notFound'] === false);
+
+// An id that was asked for but couldn't be resolved is reported, so the page
+// can say so rather than loading a silently empty Side A.
+$r = resolve_preselect($playerPool, 'sf', '9999999');
+check('unknown id sets notFound', $r['notFound'] === true);
+$r = resolve_preselect($playerPool, 'sf', '4046');
+check('resolved id leaves notFound false', $r['notFound'] === false);
 
 // A player only priced in one format isn't wrongly preselected in the other
 // if it's genuinely a different id space (defensive: an id valid in sf

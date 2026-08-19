@@ -170,10 +170,22 @@ on your VPS you'll need to install `php-fpm` and add an nginx block for it
 (the exact steps depend on your distro/PHP version — see your OS's php-fpm
 package docs).
 
-**Simplest deployment:** drop `trade_calculator.php` in the project root,
-next to `player_directory.json` and `trade_values.json` — it defaults to
-reading them from its own directory. Add an nginx `location` block pointing at that
-directory (same `alias` pattern as the dashboard block in step 8 above), e.g.:
+**Deploy both PHP files together.** `trade_calculator.php` does
+`require __DIR__ . '/trade_calculator_lib.php'`, so the two must land in the
+same directory. Copying only `trade_calculator.php` gives you a PHP fatal
+(500 or blank page). Copying only the new `trade_calculator.php` over a
+deployment that predates the lib file does the same. Re-copy the pair
+whenever either one changes. The dashboard's "Explore Trade" deep link
+(`trade_calculator.php?player=<id>`) is resolved server-side in the lib, so a
+stale `trade_calculator.php` ignores the `?player=` id and loads an empty
+Side A.
+
+**Simplest deployment:** drop `trade_calculator.php` and
+`trade_calculator_lib.php` in the project root, next to
+`player_directory.json` and `trade_values.json`. The calculator defaults to
+reading the JSON from its own directory. Add an nginx `location` block
+pointing at that directory (same `alias` pattern as the dashboard block in
+step 8 above), e.g.:
 
 ```nginx
 location /trade-calculator.php {
@@ -213,6 +225,16 @@ read the caches from there instead.
 
 **Contract lookups or ESPN news all come back empty**
 → Check PARSE_BOT_API is set in .env and hasn't hit its Parse Bot rate/credit limit (check pipeline.log for 401/429 responses from api.parse.bot).
+
+**"Explore Trade" link opens the calculator with Side A empty**
+→ The deployed `trade_calculator.php` predates the deep-link feature. View source on
+`trade_calculator.php?player=<id>`: if there's no `const PRESELECT = ...` line next to
+`const PLAYERS`, the server is running an old copy. Re-copy both
+`trade_calculator.php` and `trade_calculator_lib.php` (see the trade calculator
+section above).
+→ If `PRESELECT` is there and the page shows a note saying the player isn't in the
+directory, the id genuinely isn't in `player_directory.json`. Rebuild it with
+`python player_directory_agent.py` (running it directly always forces a rebuild).
 
 **Dashboard renders but looks wrong**
 → Run --dry-run, scp the HTML to your local machine and inspect in browser dev tools

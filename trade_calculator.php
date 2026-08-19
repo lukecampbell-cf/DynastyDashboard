@@ -214,6 +214,17 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP;
       color: #fca5a5;
     }
 
+    .preselect-note {
+      background: var(--card-bg);
+      border: 1px solid var(--watch-dim);
+      border-left: 3px solid var(--watch);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 13px;
+      color: #fcd34d;
+      margin-bottom: 20px;
+    }
+
     /* ── FORMAT TOGGLE ── */
     .format-toggle {
       display: inline-flex;
@@ -483,6 +494,11 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP;
   <div class="page-sub">Add players and picks to each side. Values come from RosterAudit's dynasty market
   rankings; players marked <em>est.</em> aren't priced by RosterAudit and instead use a FantasyPros-rank-based
   estimate — treat those as directional, not authoritative.</div>
+
+<?php if ($preselect['notFound']): ?>
+  <div class="preselect-note">That link asked for a player who isn't in the current directory, so Side A
+  started empty. The directory rebuilds weekly. Search for the player by name to add them.</div>
+<?php endif; ?>
 
   <div class="format-toggle" role="group" aria-label="Value format">
     <button type="button" id="fmt-sf" class="<?php echo $preselect['format'] === 'sf' ? 'active' : ''; ?>" onclick="switchFormat('sf')">Superflex</button>

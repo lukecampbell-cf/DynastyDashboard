@@ -26,16 +26,28 @@ declare(strict_types=1);
  * dropped rather than ever being echoed back or trusted on the strength of
  * looking id-shaped.
  *
+ * `notFound` is true only when a player id was actually asked for and could
+ * not be resolved. The page uses it to say so out loud instead of loading a
+ * silently empty Side A, which is indistinguishable from the link never
+ * having carried an id at all (and was previously impossible to diagnose
+ * from the browser).
+ *
  * @param array<string, array<string, array>> $playerPool format => (id => player data)
- * @return array{format: string, playerId: ?string}
+ * @return array{format: string, playerId: ?string, notFound: bool}
  */
 function resolve_preselect(array $playerPool, ?string $rawFormat, ?string $rawPlayerId): array {
     $format = in_array($rawFormat, ['sf', '1qb'], true) ? $rawFormat : 'sf';
 
+    $requested = $rawPlayerId !== null && $rawPlayerId !== '';
+
     $playerId = null;
-    if ($rawPlayerId !== null && isset($playerPool[$format][$rawPlayerId])) {
+    if ($requested && isset($playerPool[$format][$rawPlayerId])) {
         $playerId = $rawPlayerId;
     }
 
-    return ['format' => $format, 'playerId' => $playerId];
+    return [
+        'format' => $format,
+        'playerId' => $playerId,
+        'notFound' => $requested && $playerId === null,
+    ];
 }
