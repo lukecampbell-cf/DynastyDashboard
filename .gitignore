@@ -2,6 +2,9 @@
 pipeline.log
 player_analysis_cache.json
 league_summary_cache.json
+league_analysis_cache.json
+player_store.json
+league_snapshots/
 player_cache.json
 player_id_map.json
 trade_values.json
@@ -10,3 +13,4 @@ health.json
 cron.log
 dashboard.zip
 bug.html
+/venv

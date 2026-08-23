@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import reasoning_agent as ra
+from old import reasoning_agent as ra
 
 
 def make_player(pid: str, name: str) -> dict:
