@@ -159,6 +159,45 @@ class LeagueRunTests(unittest.TestCase):
         self.assertNotIn("L1", json.loads(lra.ANALYSIS_CACHE_PATH.read_text()))
         self.assertIn("the next run will retry", "\n".join(logs.output))
 
+    def test_provider_or_model_switch_invalidates_identical_payload_cache(self):
+        p = player()
+        sleeper, news = inputs(p)
+        news["news_by_player"] = {"test player": {"items": [{"headline": "Role news", "source": "test"}],
+            "source_count": 1, "has_injury_flag": False, "injury_status": None}}
+        analyse = MagicMock(return_value={"overview": "Fresh analysis.", "actions": []})
+
+        with patch.object(lra, "build_client", return_value=MagicMock()), patch.object(lra, "analyse_league", analyse):
+            with patch.dict("os.environ", {"AI_PROVIDER": "openai", "OPENAI_MODEL": "gpt-model-a"}, clear=True):
+                lra.run(sleeper, news)
+                lra.run(sleeper, news)  # exact match: cache hit
+            with patch.dict("os.environ", {"AI_PROVIDER": "openai", "OPENAI_MODEL": "gpt-model-b"}, clear=True):
+                lra.run(sleeper, news)  # model changed: fresh call
+            with patch.dict("os.environ", {"AI_PROVIDER": "anthropic", "ANTHROPIC_MODEL": "claude-model-a"}, clear=True):
+                lra.run(sleeper, news)  # provider changed: fresh call
+
+        self.assertEqual(analyse.call_count, 3)
+        self.assertEqual(
+            [(call.args[1], call.args[2]) for call in analyse.call_args_list],
+            [("openai", "gpt-model-a"), ("openai", "gpt-model-b"), ("anthropic", "claude-model-a")],
+        )
+
+    def test_failure_preserves_prior_cache_entry_exactly(self):
+        p = player()
+        sleeper, news = inputs(p)
+        news["news_by_player"] = {"test player": {"items": [{"headline": "New role news", "source": "test"}],
+            "source_count": 1, "has_injury_flag": False, "injury_status": None}}
+        prior = {"fingerprint": "old-fingerprint", "generated_at": "2026-01-01T00:00:00+00:00",
+                 "analysis": {"overview": "Previous valid analysis.", "actions": []}}
+        lra.ANALYSIS_CACHE_PATH.write_text(json.dumps({"L1": prior}))
+        client = MagicMock()
+        client.messages.create.side_effect = RuntimeError("temporary outage")
+
+        with patch.dict("os.environ", {"AI_PROVIDER": "anthropic"}), patch.object(lra, "build_client", return_value=client):
+            result = lra.run(sleeper, news)
+
+        self.assertEqual(result["leagues"][0]["summary"], "Previous valid analysis.")
+        self.assertEqual(json.loads(lra.ANALYSIS_CACHE_PATH.read_text())["L1"], prior)
+
 
 if __name__ == "__main__":
     unittest.main()
