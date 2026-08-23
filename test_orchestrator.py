@@ -53,7 +53,7 @@ class SleeperFailureTests(unittest.TestCase):
         with patch.object(orchestrator.sleeper_agent, "run", side_effect=RuntimeError("Sleeper API down")), \
              patch.object(orchestrator.health_agent, "record_run") as mock_record, \
              patch.object(orchestrator.contract_agent, "run") as mock_contract, \
-             patch.object(orchestrator.league_reasoning_agent, "run") as mock_reasoning, \
+             patch.object(orchestrator.reasoning_agent, "run") as mock_reasoning, \
              patch.object(orchestrator.dashboard_agent, "run") as mock_dashboard:
             result = orchestrator.run_pipeline(dry_run=True)
 
@@ -72,7 +72,7 @@ class ContractDegradedTests(unittest.TestCase):
         with patch.object(orchestrator.sleeper_agent, "run", return_value=make_sleeper_data()), \
              patch.object(orchestrator.contract_agent, "run", side_effect=RuntimeError("Spotrac down")), \
              patch.object(orchestrator.news_agent, "run", return_value=make_news_data()), \
-             patch.object(orchestrator.league_reasoning_agent, "run", return_value=make_reasoning_data()), \
+             patch.object(orchestrator.reasoning_agent, "run", return_value=make_reasoning_data()), \
              patch.object(orchestrator.dashboard_agent, "run", return_value=True), \
              patch.object(orchestrator.health_agent, "record_run") as mock_record:
             result = orchestrator.run_pipeline(dry_run=True)
@@ -89,7 +89,7 @@ class NewsDegradedTests(unittest.TestCase):
         with patch.object(orchestrator.sleeper_agent, "run", return_value=make_sleeper_data()), \
              patch.object(orchestrator.contract_agent, "run", return_value={}), \
              patch.object(orchestrator.news_agent, "run", side_effect=RuntimeError("all scrapers down")), \
-             patch.object(orchestrator.league_reasoning_agent, "run", return_value=make_reasoning_data()) as mock_reasoning, \
+             patch.object(orchestrator.reasoning_agent, "run", return_value=make_reasoning_data()) as mock_reasoning, \
              patch.object(orchestrator.dashboard_agent, "run", return_value=True), \
              patch.object(orchestrator.health_agent, "record_run"):
             result = orchestrator.run_pipeline(dry_run=True)
@@ -107,7 +107,7 @@ class ReasoningFailureTests(unittest.TestCase):
         with patch.object(orchestrator.sleeper_agent, "run", return_value=make_sleeper_data()), \
              patch.object(orchestrator.contract_agent, "run", return_value={}), \
              patch.object(orchestrator.news_agent, "run", return_value=make_news_data()), \
-             patch.object(orchestrator.league_reasoning_agent, "run", side_effect=RuntimeError("AI provider unavailable")), \
+             patch.object(orchestrator.reasoning_agent, "run", side_effect=RuntimeError("Claude unavailable")), \
              patch.object(orchestrator.dashboard_agent, "run") as mock_dashboard, \
              patch.object(orchestrator.health_agent, "record_run") as mock_record:
             result = orchestrator.run_pipeline(dry_run=True)
@@ -136,7 +136,7 @@ class DashboardWriteFailureTests(unittest.TestCase):
                  patch.object(orchestrator.sleeper_agent, "run", return_value=make_sleeper_data()), \
                  patch.object(orchestrator.contract_agent, "run", return_value={}), \
                  patch.object(orchestrator.news_agent, "run", return_value=make_news_data()), \
-                 patch.object(orchestrator.league_reasoning_agent, "run", return_value=make_reasoning_data()), \
+                 patch.object(orchestrator.reasoning_agent, "run", return_value=make_reasoning_data()), \
                  patch.object(orchestrator.health_agent, "record_run"), \
                  patch.object(common.os, "replace", side_effect=OSError("disk full")):
                 result = orchestrator.run_pipeline(dry_run=True)
@@ -161,7 +161,7 @@ class TradeValuesDegradedStageTests(unittest.TestCase):
         with patch.object(orchestrator.sleeper_agent, "run", return_value=make_sleeper_data(trade_values_degraded=["1qb"])), \
              patch.object(orchestrator.contract_agent, "run", return_value={}), \
              patch.object(orchestrator.news_agent, "run", return_value=make_news_data()), \
-             patch.object(orchestrator.league_reasoning_agent, "run", return_value=make_reasoning_data()), \
+             patch.object(orchestrator.reasoning_agent, "run", return_value=make_reasoning_data()), \
              patch.object(orchestrator.dashboard_agent, "run", return_value=True), \
              patch.object(orchestrator.health_agent, "record_run"):
             result = orchestrator.run_pipeline(dry_run=True)
@@ -177,7 +177,7 @@ class TradeValuesDegradedStageTests(unittest.TestCase):
         with patch.object(orchestrator.sleeper_agent, "run", return_value=make_sleeper_data()), \
              patch.object(orchestrator.contract_agent, "run", return_value={}), \
              patch.object(orchestrator.news_agent, "run", return_value=make_news_data()), \
-             patch.object(orchestrator.league_reasoning_agent, "run", return_value=make_reasoning_data()), \
+             patch.object(orchestrator.reasoning_agent, "run", return_value=make_reasoning_data()), \
              patch.object(orchestrator.dashboard_agent, "run", return_value=True), \
              patch.object(orchestrator.health_agent, "record_run"):
             result = orchestrator.run_pipeline(dry_run=True)

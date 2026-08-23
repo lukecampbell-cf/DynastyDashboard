@@ -47,7 +47,7 @@ from schemas import (
     SleeperOutput,
     SummaryCacheEntry,
 )
-from old.validation import ValidationError, apply_reasoning_guardrails, validate_reasoning_result
+from validation import ValidationError, apply_reasoning_guardrails, validate_reasoning_result
 
 log = logging.getLogger(__name__)
 

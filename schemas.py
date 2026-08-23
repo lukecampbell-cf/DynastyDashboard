@@ -188,7 +188,7 @@ class NewsOutput(_NewsOutputRequired, total=False):
     enriched_roster: list[EnrichedPlayer]
 
 
-# ── Reasoning (league_reasoning_agent.py) ──────────────────────────────────
+# ── Reasoning (reasoning_agent.py) ─────────────────────────────────────────
 
 class ReasoningResult(TypedDict):
     """The Anthropic API's structured per-player assessment — see
