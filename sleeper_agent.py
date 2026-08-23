@@ -499,7 +499,7 @@ def run() -> SleeperOutput:
     # not just your rostered ones) for trade_calculator.php — refreshed at
     # most weekly, see player_directory_agent.py. Non-fatal: a failure here
     # shouldn't take down the whole Sleeper pipeline, since it's a side file
-    # for a standalone tool, not something league_reasoning_agent.py depends on.
+    # for a standalone tool, not something reasoning_agent.py depends on.
     try:
         player_directory_agent.run(all_players, rosteraudit_data)
     except Exception as e:

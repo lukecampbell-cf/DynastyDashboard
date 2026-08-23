@@ -4,9 +4,8 @@
 
 An automated pipeline that pulls your Sleeper fantasy football rosters, cross-references
 player news from six sites, layers in FantasyPros consensus rankings and RosterAudit
-dynasty trade value, builds compact local player and league snapshots, asks Claude once
-per materially changed league for an overview and short action list, and renders the
-result as a static HTML dashboard.
+dynasty trade value, runs it all through Claude for a trend/recommendation call per
+player, and renders the result as a static HTML dashboard.
 
 For install/deploy/cron instructions, see [SETUP.md](SETUP.md). This file covers what
 the pipeline does and how the pieces fit together.
@@ -25,7 +24,7 @@ orchestrator.py
   ├─ 1. sleeper_agent.py   → your rosters, enriched with FantasyPros rank + RosterAudit trade value
   ├─ 2. contract_agent.py  → real NFL contract terms per player, scraped from Spotrac
   ├─ 3. news_agent.py      → injury/trade/depth-chart news, matched to your roster
-  ├─ 4. league_reasoning_agent.py → one action-focused analysis per changed league
+  ├─ 4. reasoning_agent.py → Claude analysis: trend, confidence, recommendation
   └─ 5. dashboard_agent.py → renders + writes index.html
 ```
 
@@ -259,8 +258,7 @@ match, e.g. a very deep stash) is cached too, so it isn't re-queried every run �
 simply retried after the same 4-week window in case the player gets a Spotrac page
 later.
 
-This contract data feeds `league_reasoning_agent.py`'s deterministic `contract_note`:
-when a verified match
+This contract data feeds `reasoning_agent.py`'s `contract_note`: when a verified match
 exists, Claude is instructed to state those actual terms rather than its own
 best-effort guess; when it doesn't, the prompt falls back to the previous
 general-knowledge hedge.
@@ -342,6 +340,26 @@ identity, so changing either triggers a fresh analysis. Stable players receive
 deterministic dashboard defaults and consume no output tokens. Provider responses are
 capped at 900 output tokens per changed league.
 
+When a real provider call is made, the pipeline log records the selected provider and
+model followed by the exact formatted JSON payload sent for that league. Cache hits and
+quiet leagues do not emit an AI-request payload because no request is made. API keys are
+never included in this output.
+
+Every league logs whether its AI call was skipped (empty roster, unchanged cache, or no
+material signals) and logs the final overall league analysis text with its source:
+`model`, `cache`, `quiet`, `empty_roster`, or an error fallback. This makes it possible
+to confirm exactly which overview is passed to the dashboard.
+
+OpenAI requests use minimal reasoning effort and a strict JSON schema so the 900-token
+budget is reserved primarily for the visible league analysis. If OpenAI returns an empty
+or incomplete response, the error log includes its status, incomplete reason, and output
+item types instead of only reporting a JSON parse error.
+
+Only successful provider responses are written to `league_analysis_cache.json`. A
+provider failure may display the previous stale analysis (or a deterministic unavailable
+message when none exists), but it never stores that fallback under the new fingerprint;
+the next identical pipeline run therefore retries the provider.
+
 The previous per-player implementation and its dedicated validation/tests have moved to
 `old/` for rollback reference. Nothing in `old/` is imported by the active pipeline.
 
@@ -368,7 +386,7 @@ as ground truth rather than infer a player's draft class itself, which is what k
 best-effort characterization from general knowledge — not a lookup against a live depth
 chart feed — so treat it as directional, not authoritative.
 
-Every parsed response is validated against the schema above (`old/validation.py`) before it
+Every parsed response is validated against the schema above (`validation.py`) before it
 can reach the cache or a dashboard card — an invalid `trend`/`confidence` value, a missing
 required field, a wrong type, or oversized text is rejected and logged rather than
 persisted; in a batched call, one player's invalid entry is dropped without affecting the
@@ -388,7 +406,7 @@ state a more specific diagnosis than that evidence supports, and to scale recomm
 strength to its own confidence (LOW → "Monitor," MEDIUM → "Hold"/"Explore trade value,"
 HIGH → a stronger call only when genuinely warranted).
 
-That instruction is also enforced in code, not just prompt wording — `old/validation.py`'s
+That instruction is also enforced in code, not just prompt wording — `validation.py`'s
 `apply_reasoning_guardrails()` runs on every validated result before it's cached: if
 `summary`/`dynasty_note`/`roster_status_note` names a specific injury term the evidence
 doesn't support (e.g. a plain "knee injury" coming back as "ACL injury"), the offending
@@ -397,7 +415,7 @@ at the evidence's own ceiling — the rest of the analysis is left intact. Separ
 `recommendation` uses extreme action language ("sell immediately," "buy aggressively,"
 "drop") under LOW or MEDIUM confidence, it's replaced with a confidence-appropriate
 default; HIGH confidence is never touched. Both guards are deterministic and unit-tested
-(`old/test_validation.py`) without needing a live API call.
+(`test_validation.py`) without needing a live API call.
 
 **Empty leagues get no LLM call.** A league with zero rostered players skips
 `generate_league_summary()` entirely and renders `EMPTY_LEAGUE_SUMMARY` ("No roster data
@@ -443,7 +461,7 @@ target league on click — keeps the page navigable as a single static "app" wit
 needing a build step or JS framework.
 
 A header banner ("Since the previous analysis: **3** changed materially · **2** may need
-a look · **301** stable") summarises `league_reasoning_agent.py`'s `change_summary` in plain
+a look · **301** stable") summarises `reasoning_agent.py`'s `change_summary` in plain
 language — no cache/fingerprint/model terminology — so opening the dashboard answers
 "what's new since I last looked?" without scanning every card; it's omitted entirely when
 there's nothing to report. Within each trend column, `material_change` players sort ahead
@@ -554,4 +572,4 @@ Sleeper-step failure.
 
 ## Requirements
 
-See `requirements.txt`: `httpx`, `beautifulsoup4`, `lxml`, `anthropic`, `openai`, `python-dotenv`.
+See `requirements.txt`: `httpx`, `beautifulsoup4`, `lxml`, `anthropic`, `python-dotenv`.

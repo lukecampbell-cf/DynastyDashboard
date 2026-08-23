@@ -43,8 +43,20 @@ class CompactPayloadTests(unittest.TestCase):
         _, kwargs = client.responses.create.call_args
         self.assertEqual(kwargs["model"], "gpt-5-mini")
         self.assertEqual(kwargs["max_output_tokens"], 900)
+        self.assertEqual(kwargs["reasoning"], {"effort": "minimal"})
+        self.assertEqual(kwargs["text"]["format"]["type"], "json_schema")
+        self.assertTrue(kwargs["text"]["format"]["strict"])
         self.assertIn("instructions", kwargs)
         self.assertIn("input", kwargs)
+
+    def test_empty_openai_response_reports_diagnostics(self):
+        client = MagicMock()
+        client.responses.create.return_value = MagicMock(
+            output_text="", status="incomplete", incomplete_details={"reason": "max_output_tokens"}, output=[]
+        )
+        payload = {"league": {"id": "L1"}, "roster": [{"id": "1"}]}
+        with self.assertRaisesRegex(ValueError, "status='incomplete'.*max_output_tokens"):
+            lra.analyse_league(client, "openai", "gpt-5-mini", payload)
 
     def test_news_is_deduplicated_and_capped(self):
         p = player(news=True)
@@ -82,10 +94,13 @@ class LeagueRunTests(unittest.TestCase):
 
     def test_no_signal_makes_no_model_call_and_writes_local_views(self):
         sleeper, news = inputs(player())
-        with patch.object(lra, "build_client") as constructor:
+        with patch.object(lra, "build_client") as constructor, self.assertLogs(lra.log, level="INFO") as logs:
             result = lra.run(sleeper, news)
         constructor.assert_not_called()
         self.assertEqual(result["leagues"][0]["summary"], "No material roster news or injury changes this cycle.")
+        output = "\n".join(logs.output)
+        self.assertIn("quiet league with no material signals", output)
+        self.assertIn("source=quiet: No material roster news or injury changes this cycle.", output)
         self.assertTrue(lra.PLAYER_STORE_PATH.exists())
         self.assertTrue((lra.SNAPSHOT_DIR / "L1.json").exists())
 
@@ -99,9 +114,15 @@ class LeagueRunTests(unittest.TestCase):
             "player_id": "1", "trend": "UP", "confidence": "MEDIUM", "action": "Hold.",
             "reason": "He moved into the starting lineup.", "flags": ["depth_chart"]}]}))]
         client = MagicMock(); client.messages.create.return_value = response
-        with patch.dict("os.environ", {"AI_PROVIDER": "anthropic"}), patch.object(lra, "build_client", return_value=client):
+        with patch.dict("os.environ", {"AI_PROVIDER": "anthropic"}), patch.object(lra, "build_client", return_value=client), \
+             self.assertLogs(lra.log, level="INFO") as logs:
             result = lra.run(sleeper, news)
         client.messages.create.assert_called_once()
+        output = "\n".join(logs.output)
+        self.assertIn("provider=anthropic model=claude-haiku-4-5", output)
+        self.assertIn('"roster": [', output)
+        self.assertIn('"Moves into the starting lineup"', output)
+        self.assertIn("source=model: Role improved.", output)
         reasoning = result["leagues"][0]["players"][0]["reasoning"]
         self.assertEqual(reasoning["trend"], "UP")
         self.assertEqual(reasoning["summary"], "He moved into the starting lineup.")
@@ -117,6 +138,26 @@ class LeagueRunTests(unittest.TestCase):
             lra.run(sleeper, news)
             lra.run(sleeper, news)
         client.messages.create.assert_called_once()
+
+    def test_provider_failure_is_not_cached_and_identical_run_retries(self):
+        p = player()
+        sleeper, news = inputs(p)
+        news["news_by_player"] = {"test player": {"items": [{"headline": "Role news", "source": "test"}],
+            "source_count": 1, "has_injury_flag": False, "injury_status": None}}
+        client = MagicMock()
+        client.messages.create.side_effect = RuntimeError("temporary outage")
+
+        with patch.dict("os.environ", {"AI_PROVIDER": "anthropic"}), \
+             patch.object(lra, "build_client", return_value=client), \
+             self.assertLogs(lra.log, level="INFO") as logs:
+            first = lra.run(sleeper, news)
+            second = lra.run(sleeper, news)
+
+        self.assertEqual(client.messages.create.call_count, 2)
+        self.assertEqual(first["leagues"][0]["summary"], "Analysis unavailable; showing current roster facts.")
+        self.assertEqual(second["leagues"][0]["summary"], "Analysis unavailable; showing current roster facts.")
+        self.assertNotIn("L1", json.loads(lra.ANALYSIS_CACHE_PATH.read_text()))
+        self.assertIn("the next run will retry", "\n".join(logs.output))
 
 
 if __name__ == "__main__":
