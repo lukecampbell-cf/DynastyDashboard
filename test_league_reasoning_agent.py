@@ -198,6 +198,33 @@ class LeagueRunTests(unittest.TestCase):
         self.assertEqual(result["leagues"][0]["summary"], "Previous valid analysis.")
         self.assertEqual(json.loads(lra.ANALYSIS_CACHE_PATH.read_text())["L1"], prior)
 
+    def test_only_action_players_enter_watch_and_remainder_are_no_action(self):
+        watched = player("1")
+        watched["full_name"] = "Watched Player"
+        stable = player("2")
+        stable["full_name"] = "Stable Player"
+        sleeper, news = inputs(watched)
+        sleeper["leagues"][0]["players"] = [watched, stable]
+        news["news_by_player"] = {"watched player": {
+            "items": [{"headline": "Role remains uncertain", "source": "test"}],
+            "source_count": 1, "has_injury_flag": False, "injury_status": None,
+        }}
+        response = MagicMock()
+        response.content = [MagicMock(text=json.dumps({"overview": "One situation to watch.", "actions": [{
+            "player_id": "1", "trend": "WATCH", "confidence": "MEDIUM", "action": "Monitor.",
+            "reason": "His role remains uncertain.", "flags": ["depth_chart"]}]}))]
+        client = MagicMock(); client.messages.create.return_value = response
+
+        with patch.dict("os.environ", {"AI_PROVIDER": "anthropic"}), patch.object(lra, "build_client", return_value=client):
+            result = lra.run(sleeper, news)
+
+        league = result["leagues"][0]
+        self.assertEqual([p["player_id"] for p in league["watch_list"]], ["1"])
+        self.assertEqual([p["player_id"] for p in league["no_action"]], ["2"])
+        self.assertEqual(league["no_action"][0]["reasoning"]["trend"], "NO_ACTION")
+        self.assertEqual(league["stats"]["watch"], 1)
+        self.assertEqual(league["stats"]["no_action"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -30,6 +30,12 @@ def load_dashboard_css() -> str:
     return DASHBOARD_CSS_PATH.read_text(encoding="utf-8")
 
 
+def provider_display_name() -> str:
+    """Return the user-facing name of the configured AI provider."""
+    provider = os.environ.get("AI_PROVIDER", "openai").strip().lower()
+    return "Claude" if provider == "anthropic" else "OpenAI"
+
+
 def esc(value) -> str:
     """
     HTML-escape a value before splicing it into the template. Applied
@@ -46,12 +52,12 @@ def esc(value) -> str:
 
 
 def trend_icon(trend: str) -> str:
-    icons = {"UP": "▲", "DOWN": "▼", "WATCH": "◆"}
+    icons = {"UP": "▲", "DOWN": "▼", "WATCH": "◆", "NO_ACTION": "○"}
     return icons.get(trend, "◆")
 
 
 def trend_class(trend: str) -> str:
-    classes = {"UP": "trend-up", "DOWN": "trend-down", "WATCH": "trend-watch"}
+    classes = {"UP": "trend-up", "DOWN": "trend-down", "WATCH": "trend-watch", "NO_ACTION": "trend-no-action"}
     return classes.get(trend, "trend-watch")
 
 
@@ -304,10 +310,12 @@ def render_league_section(league: LeagueResult, is_first: bool = False) -> str:
     trending_up = league.get("trending_up", [])
     trending_down = league.get("trending_down", [])
     watch_list = league.get("watch_list", [])
+    no_action = league.get("no_action", [])
 
     up_cards = "\n".join(render_player_card(p) for p in trending_up)
     down_cards = "\n".join(render_player_card(p) for p in trending_down)
     watch_cards = "\n".join(render_player_card(p) for p in watch_list)
+    no_action_cards = "\n".join(render_player_card(p) for p in no_action)
 
     return f"""
   <details class="league-details" id="{slug}"{" open" if is_first else ""}>
@@ -321,6 +329,7 @@ def render_league_section(league: LeagueResult, is_first: bool = False) -> str:
         <div class="stat-pill up">▲ {esc(stats.get('trending_up', 0))} Up</div>
         <div class="stat-pill down">▼ {esc(stats.get('trending_down', 0))} Down</div>
         <div class="stat-pill watch">◆ {esc(stats.get('watch', 0))} Watch</div>
+        <div class="stat-pill no-action">○ {esc(stats.get('no_action', 0))} No Action</div>
         <div class="stat-pill injury">🩹 {esc(stats.get('injured', 0))} Injured</div>
       </div>
     </summary>
@@ -340,6 +349,10 @@ def render_league_section(league: LeagueResult, is_first: bool = False) -> str:
         <div class="trend-col col-watch">
           <h3 class="col-header watch">◆ Watch Carefully</h3>
           {watch_cards if watch_cards else '<p class="no-data">No players on watch</p>'}
+        </div>
+        <div class="trend-col col-no-action">
+          <h3 class="col-header no-action">○ No Action</h3>
+          {no_action_cards if no_action_cards else '<p class="no-data">No players in this bucket</p>'}
         </div>
       </div>
     </div>
@@ -429,6 +442,7 @@ def render_html(reasoning_data: ReasoningOutput) -> str:
     season = esc(reasoning_data.get("season", "2025"))
     leagues = reasoning_data.get("leagues", [])
     updated_at = datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M UTC")
+    ai_provider = provider_display_name()
 
     league_sections = "\n".join(
         render_league_section(l, is_first=(i == 0)) for i, l in enumerate(leagues)
@@ -485,7 +499,7 @@ def render_html(reasoning_data: ReasoningOutput) -> str:
 </main>
 
 <footer class="site-footer">
-  <span class="footer-orange">Dynasty HQ</span> · Powered by Sleeper API + Anthropic Claude · {updated_at}
+  <span class="footer-orange">Dynasty HQ</span> · Powered by Sleeper API + ParseBot + {ai_provider} + FantasyPros + RosterAudit · {updated_at}
 </footer>
 
 <script>

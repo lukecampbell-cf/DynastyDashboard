@@ -360,6 +360,11 @@ provider failure may display the previous stale analysis (or a deterministic una
 message when none exists), but it never stores that fallback under the new fingerprint;
 the next identical pipeline run therefore retries the provider.
 
+Within each league, only players returned in the model's `actions` array can appear in
+Trending Up, Trending Down, or Watch Carefully. All omitted roster players are assigned
+deterministically to a separate No Action bucket, so a default stable player is never
+presented as an AI watch recommendation.
+
 The previous per-player implementation and its dedicated validation/tests have moved to
 `old/` for rollback reference. Nothing in `old/` is imported by the active pipeline.
 

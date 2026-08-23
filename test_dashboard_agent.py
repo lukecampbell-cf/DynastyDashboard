@@ -13,6 +13,7 @@ Or via unittest: ./venv/bin/python -m unittest test_dashboard_agent -v
 """
 
 import unittest
+from unittest.mock import patch
 
 import dashboard_agent as da
 
@@ -54,10 +55,11 @@ def make_league(**overrides) -> dict:
         "league_name": PAYLOAD,
         "season": PAYLOAD,
         "summary": PAYLOAD,
-        "stats": {"trending_up": 1, "trending_down": 0, "watch": 0, "injured": 0, "total": 1},
+        "stats": {"trending_up": 1, "trending_down": 0, "watch": 0, "no_action": 0, "injured": 0, "total": 1},
         "trending_up": [make_player()],
         "trending_down": [],
         "watch_list": [],
+        "no_action": [],
     }
     league.update(overrides)
     return league
@@ -80,6 +82,24 @@ class EscapeHelperTests(unittest.TestCase):
         self.assertEqual(da.esc(3), "3")
 
 
+class FooterAttributionTests(unittest.TestCase):
+    def test_footer_uses_openai_by_default(self):
+        with patch.dict("os.environ", {}, clear=True):
+            html = da.render_html({"leagues": []})
+        self.assertIn(
+            "Powered by Sleeper API + ParseBot + OpenAI + FantasyPros + RosterAudit",
+            html,
+        )
+
+    def test_footer_uses_claude_for_anthropic_provider(self):
+        with patch.dict("os.environ", {"AI_PROVIDER": "anthropic"}, clear=True):
+            html = da.render_html({"leagues": []})
+        self.assertIn(
+            "Powered by Sleeper API + ParseBot + Claude + FantasyPros + RosterAudit",
+            html,
+        )
+
+
 class PlayerCardEscapingTests(unittest.TestCase):
     def test_no_raw_payload_in_player_card(self):
         html = da.render_player_card(make_player())
@@ -91,6 +111,32 @@ class PlayerCardEscapingTests(unittest.TestCase):
         html = da.render_player_card(make_player(position='qb"><svg onload=alert(1)>'))
         self.assertNotIn("<svg", html)
 
+
+class LeagueBucketTests(unittest.TestCase):
+    def test_desktop_css_keeps_all_four_buckets_on_one_row(self):
+        css = da.load_dashboard_css()
+        self.assertIn("grid-template-columns: repeat(4, minmax(0, 1fr));", css)
+        self.assertNotIn("@media (min-width: 901px) and (max-width: 1250px)", css)
+        self.assertIn("max-width: 1800px;", css)
+
+    def test_no_action_players_render_in_their_own_column(self):
+        stable = make_player(
+            full_name="Stable Player",
+            reasoning={"trend": "NO_ACTION", "confidence": "LOW", "summary": "No material change.",
+                       "recommendation": "Hold.", "dynasty_note": None, "contract_note": None,
+                       "roster_status_note": None, "flags": []},
+        )
+        league = make_league(
+            trending_up=[], watch_list=[], no_action=[stable],
+            stats={"trending_up": 0, "trending_down": 0, "watch": 0, "no_action": 1,
+                   "injured": 0, "total": 1},
+        )
+        html = da.render_league_section(league)
+        self.assertIn("Watch Carefully", html)
+        self.assertIn("No players on watch", html)
+        self.assertIn("No Action", html)
+        self.assertIn("Stable Player", html)
+        self.assertIn("NO_ACTION", html)
 
 class SafeUrlTests(unittest.TestCase):
     def test_allows_http_and_https(self):

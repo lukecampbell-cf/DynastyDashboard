@@ -210,7 +210,7 @@ def analyse_league(client, provider: str, model: str, payload: dict) -> dict:
 
 
 def _default(player: dict) -> dict:
-    return {"trend": "WATCH", "confidence": "LOW", "summary": "No material change requiring action.",
+    return {"trend": "NO_ACTION", "confidence": "LOW", "summary": "No material change requiring action.",
             "fantasy_impact": "NONE", "recommendation": "Hold.", "dynasty_note": None,
             "contract_note": _contract_note(player), "roster_status_note": player.get("roster_designation"),
             "flags": []}
@@ -299,12 +299,15 @@ def run(sleeper_data: SleeperOutput, news_data: NewsOutput) -> ReasoningOutput:
                 is_zero_signal=not _material(player), has_injury_flag=bool(player.get("has_injury_flag")), trend=item["reasoning"]["trend"])
             result["change_summary"][item["change_status"]] += 1
             analysed.append(item)
-        buckets = {t: [p for p in analysed if p["reasoning"]["trend"] == t] for t in ("UP", "DOWN", "WATCH")}
+        buckets = {t: [p for p in analysed if p["reasoning"]["trend"] == t]
+                   for t in ("UP", "DOWN", "WATCH", "NO_ACTION")}
         league_result: LeagueResult = {"league_id": league["league_id"], "league_name": league["league_name"],
             "season": league["season"], "summary": analysis["overview"], "players": analysed,
             "trending_up": buckets["UP"], "trending_down": buckets["DOWN"], "watch_list": buckets["WATCH"],
+            "no_action": buckets["NO_ACTION"],
             "stats": {"total": len(analysed), "trending_up": len(buckets["UP"]), "trending_down": len(buckets["DOWN"]),
-                      "watch": len(buckets["WATCH"]), "injured": sum(bool(p.get("has_injury_flag")) for p in analysed)}}
+                      "watch": len(buckets["WATCH"]), "no_action": len(buckets["NO_ACTION"]),
+                      "injured": sum(bool(p.get("has_injury_flag")) for p in analysed)}}
         result["leagues"].append(league_result)
         for trend, key in (("UP", "trending_up"), ("DOWN", "trending_down"), ("WATCH", "watch_list")):
             for player in buckets[trend]:

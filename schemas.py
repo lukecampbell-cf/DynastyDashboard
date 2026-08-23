@@ -194,7 +194,7 @@ class ReasoningResult(TypedDict):
     """The Anthropic API's structured per-player assessment — see
     reasoning_agent.SYSTEM_PROMPT for the authoritative schema this
     formalizes; keep the two in sync if the prompt's schema changes."""
-    trend: str          # "UP" | "DOWN" | "WATCH"
+    trend: str          # "UP" | "DOWN" | "WATCH" | "NO_ACTION" (deterministic only)
     confidence: str      # "HIGH" | "MEDIUM" | "LOW"
     summary: str
     fantasy_impact: str  # "SHORT" | "MEDIUM" | "LONG" | "NONE"
@@ -248,6 +248,7 @@ class LeagueStats(TypedDict):
     trending_up: int
     trending_down: int
     watch: int
+    no_action: int
     injured: int
 
 
@@ -260,6 +261,7 @@ class LeagueResult(TypedDict):
     trending_up: list[AnalysedPlayer]
     trending_down: list[AnalysedPlayer]
     watch_list: list[AnalysedPlayer]
+    no_action: list[AnalysedPlayer]
     stats: LeagueStats
 
 
