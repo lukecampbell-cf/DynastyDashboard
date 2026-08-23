@@ -323,7 +323,42 @@ Sleeper roster entry.
 
 ---
 
-## 4. Reasoning Agent (`reasoning_agent.py`)
+## 4. League Reasoning Agent (`league_reasoning_agent.py`)
+
+The active reasoning path stores canonical player facts in `player_store.json`, writes
+small membership/status views under `league_snapshots/`, and caches model results in
+`league_analysis_cache.json`. Shared player facts are stored once rather than copied
+into every league snapshot.
+
+Only signal-bearing players carry news and injury fields in the model payload. News is
+deduplicated and capped at two headlines. A league with no material signal makes no
+model call; an unchanged league reuses its cached result. A changed league makes one
+provider call returning a short overview and at most eight actionable exceptions. Set
+`AI_PROVIDER=openai` (default) or `AI_PROVIDER=anthropic`; override the selected model
+with `ANTHROPIC_MODEL` or `OPENAI_MODEL`. Provider and model are included in the cache
+identity, so changing either triggers a fresh analysis. Stable players receive
+deterministic dashboard defaults and consume no output tokens. Provider responses are
+capped at 900 output tokens per changed league.
+
+When a real provider call is made, the pipeline log records the selected provider and
+model followed by the exact formatted JSON payload sent for that league. Cache hits and
+quiet leagues do not emit an AI-request payload because no request is made. API keys are
+never included in this output.
+
+Every league logs whether its AI call was skipped (empty roster, unchanged cache, or no
+material signals) and logs the final overall league analysis text with its source:
+`model`, `cache`, `quiet`, `empty_roster`, or an error fallback. This makes it possible
+to confirm exactly which overview is passed to the dashboard.
+
+OpenAI requests use minimal reasoning effort and a strict JSON schema so the 900-token
+budget is reserved primarily for the visible league analysis. If OpenAI returns an empty
+or incomplete response, the error log includes its status, incomplete reason, and output
+item types instead of only reporting a JSON parse error.
+
+The previous per-player implementation and its dedicated validation/tests have moved to
+`old/` for rollback reference. Nothing in `old/` is imported by the active pipeline.
+
+### Previous per-player implementation
 
 For each roster player (enriched with news from step 3 and contract data from step 2),
 calls the Claude API (`claude-sonnet-4-6`, key from `DASHBOARD_KEY` in `.env`) with
