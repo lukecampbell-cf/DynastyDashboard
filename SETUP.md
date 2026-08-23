@@ -3,7 +3,7 @@
 ## Prerequisites
 - Python 3.11+
 - Nginx serving your-domain.com with web root at /var/www/sites/your-domain.com/httpdocs/
-- Your Anthropic API key (DASHBOARD_KEY)
+- An Anthropic or OpenAI API key for league analysis
 - A Parse Bot API key (PARSE_BOT_API) — a paid, metered third-party API (see
   [parse.bot](https://parse.bot) for current pricing) that powers the Contract Agent's
   Spotrac lookup, three of the News Agent's six sources (ESPN, FantasyPros news,
@@ -44,7 +44,8 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 nano .env
-# Set DASHBOARD_KEY=your-rotated-api-key
+# Set AI_PROVIDER=openai (default) or AI_PROVIDER=anthropic
+# Set ANTHROPIC_API_KEY=... or OPENAI_API_KEY=...
 # Set PARSE_BOT_API=your-parse-bot-api-key
 # Set SLEEPER_USERNAME=your-sleeper-username
 # Set DASHBOARD_OUTPUT_PATH=/var/www/vhosts/your-domain.com/httpdocs/dashboard/index.html
@@ -127,8 +128,7 @@ dynasty-dashboard/
 ├── sleeper_agent.py      ← fetches your Sleeper rosters (bio details, 2-week cache)
 ├── contract_agent.py     ← Spotrac contract lookup per player (4-week cache)
 ├── news_agent.py         ← scrapes injury/trade news
-├── reasoning_agent.py    ← Anthropic AI analysis
-├── validation.py         ← runtime schema check + evidence/confidence guardrails on Claude's output
+├── league_reasoning_agent.py ← switchable Anthropic/OpenAI league analysis
 ├── signal_evidence.py    ← deterministic injury-evidence provenance + material-change classification
 ├── common.py             ← shared helpers: atomic JSON/HTML writes, staleness checks
 ├── dashboard_agent.py    ← renders and writes HTML
@@ -144,6 +144,7 @@ dynasty-dashboard/
 ├── .env                  ← your API key (never commit)
 ├── .env.example          ← template
 ├── README.md             ← architecture overview
+├── old/                  ← deprecated per-player reasoning, validation, and their tests
 ├── pipeline.log          ← run log
 └── debug/                ← intermediate JSON (--debug flag)
 ```
@@ -207,8 +208,10 @@ read the caches from there instead.
 
 ## Troubleshooting
 
-**"DASHBOARD_KEY not set"**
-→ Ensure .env exists and contains DASHBOARD_KEY=sk-ant-...
+**"API key environment variable not set"**
+→ Select `AI_PROVIDER=anthropic` with `ANTHROPIC_API_KEY`, or
+`AI_PROVIDER=openai` with `OPENAI_API_KEY`. Existing `DASHBOARD_KEY` remains an
+Anthropic-only compatibility fallback.
 
 **"Permission denied writing to /var/www/..."**
 → Re-run step 4 above, check chown matches your user

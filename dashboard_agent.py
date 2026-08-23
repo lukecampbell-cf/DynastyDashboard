@@ -371,7 +371,7 @@ GLOBAL_TRENDS_MAX = 6
 def render_global_trends_section(global_up: list[AnalysedPlayer], global_down: list[AnalysedPlayer]) -> str:
     """
     Cross-league "trending across all your leagues" panel, from
-    reasoning_agent.py's global_trends — the same player dicts (and cards)
+    league_reasoning_agent.py's global_trends — the same player dicts (and cards)
     used in each league's own trending columns, deduped by full_name and
     already sorted by confidence before being merged. Omitted entirely when
     there's nothing to show (e.g. no league data yet).
