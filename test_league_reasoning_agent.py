@@ -139,6 +139,26 @@ class LeagueRunTests(unittest.TestCase):
             lra.run(sleeper, news)
         client.messages.create.assert_called_once()
 
+    def test_provider_failure_is_not_cached_and_identical_run_retries(self):
+        p = player()
+        sleeper, news = inputs(p)
+        news["news_by_player"] = {"test player": {"items": [{"headline": "Role news", "source": "test"}],
+            "source_count": 1, "has_injury_flag": False, "injury_status": None}}
+        client = MagicMock()
+        client.messages.create.side_effect = RuntimeError("temporary outage")
+
+        with patch.dict("os.environ", {"AI_PROVIDER": "anthropic"}), \
+             patch.object(lra, "build_client", return_value=client), \
+             self.assertLogs(lra.log, level="INFO") as logs:
+            first = lra.run(sleeper, news)
+            second = lra.run(sleeper, news)
+
+        self.assertEqual(client.messages.create.call_count, 2)
+        self.assertEqual(first["leagues"][0]["summary"], "Analysis unavailable; showing current roster facts.")
+        self.assertEqual(second["leagues"][0]["summary"], "Analysis unavailable; showing current roster facts.")
+        self.assertNotIn("L1", json.loads(lra.ANALYSIS_CACHE_PATH.read_text()))
+        self.assertIn("the next run will retry", "\n".join(logs.output))
+
 
 if __name__ == "__main__":
     unittest.main()

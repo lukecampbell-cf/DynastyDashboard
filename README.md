@@ -355,6 +355,11 @@ budget is reserved primarily for the visible league analysis. If OpenAI returns 
 or incomplete response, the error log includes its status, incomplete reason, and output
 item types instead of only reporting a JSON parse error.
 
+Only successful provider responses are written to `league_analysis_cache.json`. A
+provider failure may display the previous stale analysis (or a deterministic unavailable
+message when none exists), but it never stores that fallback under the new fingerprint;
+the next identical pipeline run therefore retries the provider.
+
 The previous per-player implementation and its dedicated validation/tests have moved to
 `old/` for rollback reference. Nothing in `old/` is imported by the active pipeline.
 
