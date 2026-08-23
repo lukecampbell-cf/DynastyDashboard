@@ -31,7 +31,7 @@ load_dotenv(dotenv_path=env_path)
 import sleeper_agent
 import contract_agent
 import news_agent
-import reasoning_agent
+import league_reasoning_agent
 import dashboard_agent
 import health_agent
 from schemas import NewsOutput, PipelineResult, ReasoningOutput, SleeperOutput, StageResult
@@ -52,14 +52,23 @@ DRY_RUN_PATH = "/tmp/dynasty_dashboard_preview.html"
 
 def check_environment(dry_run: bool = False) -> bool:
     """Validate required environment variables are set."""
-    key = os.environ.get("DASHBOARD_KEY")
-    if not key:
-        log.error("DASHBOARD_KEY not set. Add it to your .env file.")
-        log.error("  echo 'DASHBOARD_KEY=your-key-here' > .env")
+    try:
+        provider = league_reasoning_agent.provider_name()
+    except EnvironmentError as exc:
+        log.error(str(exc))
         return False
-    if not key.startswith("sk-ant-"):
-        log.error("DASHBOARD_KEY does not look like a valid Anthropic API key.")
-        return False
+    if provider == "openai":
+        if not os.environ.get("OPENAI_API_KEY"):
+            log.error("AI_PROVIDER=openai requires OPENAI_API_KEY.")
+            return False
+    else:
+        key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("DASHBOARD_KEY")
+        if not key:
+            log.error("AI_PROVIDER=anthropic requires ANTHROPIC_API_KEY (or legacy DASHBOARD_KEY).")
+            return False
+        if not key.startswith("sk-ant-"):
+            log.error("The configured Anthropic key does not look valid.")
+            return False
     if not os.environ.get("SLEEPER_USERNAME"):
         log.error("SLEEPER_USERNAME not set. Add it to your .env file.")
         return False
@@ -200,7 +209,7 @@ def run_pipeline(dry_run: bool = False, debug: bool = False) -> PipelineResult:
     # ── STEP 4: Reasoning Agent ────────────────────────────────
     log.info("STEP 4/5: Reasoning Agent")
     try:
-        reasoning_data = reasoning_agent.run(sleeper_data=sleeper_data, news_data=news_data)
+        reasoning_data = league_reasoning_agent.run(sleeper_data=sleeper_data, news_data=news_data)
         total_analysed = sum(
             l.get("stats", {}).get("total", 0)
             for l in reasoning_data.get("leagues", [])
