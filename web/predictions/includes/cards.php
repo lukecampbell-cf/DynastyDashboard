@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 const PREDICTIONS_MAX_CARD_PICKS = 6;
 
+function predictions_normalise_market_id(mixed $marketId): string
+{
+    return is_string($marketId) ? trim($marketId) : '';
+}
+
 function predictions_market_path(string $leagueId, string|int $season, int $week): string
 {
     if (!preg_match('/^[A-Za-z0-9_-]+$/', $leagueId) || !preg_match('/^\d{4}$/', (string) $season) || $week < 1 || $week > 22) {
@@ -47,7 +52,7 @@ function predictions_open_market_map(array $document, ?DateTimeImmutable $now = 
         if (!is_array($market) || predictions_market_is_locked($market, $document, $now)) {
             continue;
         }
-        $id = (string) ($market['market_id'] ?? '');
+        $id = predictions_normalise_market_id($market['market_id'] ?? null);
         $playerId = (string) ($market['player_id'] ?? '');
         $position = (string) ($market['position'] ?? '');
         $numeric = ['line', 'heuristic_projection', 'context_adjustment', 'final_projection'];
@@ -55,7 +60,7 @@ function predictions_open_market_map(array $document, ?DateTimeImmutable $now = 
         foreach ($numeric as $field) {
             $validNumbers = $validNumbers && isset($market[$field]) && is_numeric($market[$field]) && is_finite((float) $market[$field]);
         }
-        if ($id === '' || $playerId === '' || !in_array($position, ['QB', 'RB', 'WR', 'TE'], true) || !$validNumbers) {
+        if ($id === '' || isset($markets[$id]) || $playerId === '' || !in_array($position, ['QB', 'RB', 'WR', 'TE'], true) || !$validNumbers) {
             continue;
         }
         $markets[$id] = $market;
@@ -73,7 +78,7 @@ function predictions_normalise_picks(mixed $marketIds, mixed $selections): array
     }
     $picks = [];
     foreach ($marketIds as $index => $marketId) {
-        $marketId = is_string($marketId) ? trim($marketId) : '';
+        $marketId = predictions_normalise_market_id($marketId);
         $selection = is_string($selections[$index] ?? null) ? strtoupper(trim($selections[$index])) : '';
         if ($marketId === '' || isset($picks[$marketId]) || !in_array($selection, ['OVER', 'UNDER'], true)) {
             throw new DomainException('The submitted prediction choices are invalid.');

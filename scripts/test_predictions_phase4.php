@@ -24,6 +24,9 @@ file_put_contents($root . '/prediction_markets/2026/week_4/L1.json', json_encode
 $loaded = predictions_load_markets('L1', '2026', 4);
 phase4_expect(count(predictions_open_market_map($loaded, new DateTimeImmutable('2026-09-10T17:59:59Z'))) === 1, 'Open market was rejected.');
 phase4_expect(count(predictions_open_market_map($loaded, new DateTimeImmutable('2026-09-10T18:00:00Z'))) === 0, 'Lock time was not enforced.');
+$whitespaceDocument = $loaded;
+$whitespaceDocument['markets'][0]['market_id'] = '  mkt_1  ';
+phase4_expect(isset(predictions_open_market_map($whitespaceDocument, new DateTimeImmutable('2026-09-10T17:59:59Z'))['mkt_1']), 'Authoritative market IDs were not normalised.');
 $picks = predictions_normalise_picks(['mkt_1'], ['over']);
 try { predictions_normalise_picks(array_fill(0, 7, 'market'), array_fill(0, 7, 'OVER')); phase4_expect(false, 'Oversized card was accepted.'); } catch (DomainException) {}
 try { predictions_normalise_picks(['mkt_1'], ['SIDEWAYS']); phase4_expect(false, 'Invalid selection was accepted.'); } catch (DomainException) {}

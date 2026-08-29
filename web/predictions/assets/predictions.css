@@ -76,6 +76,7 @@ input:focus { outline: 2px solid var(--bears-orange); outline-offset: 1px; }
 .pick-button { position: relative; color: var(--muted); background: var(--navy-3); border: 1px solid var(--border); border-radius: 7px; padding: 9px; text-align: center; cursor: pointer; font: 700 13px 'Barlow Condensed', sans-serif; }
 .pick-button input { position: absolute; opacity: 0; pointer-events: none; }
 .pick-button:has(input:checked) { color: #fff; border-color: var(--bears-orange); background: rgba(224,92,0,.18); }
+.pick-button:focus-within { outline: 2px solid #fff; outline-offset: 2px; }
 .submit-bar { position: sticky; bottom: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 22px; padding: 14px 18px; background: rgba(17,24,39,.96); border: 1px solid var(--border); border-bottom: 3px solid var(--bears-orange); border-radius: 10px 10px 0 0; backdrop-filter: blur(8px); }
 .submit-bar span { color: var(--muted); }
 .submit-bar strong { color: #fff; }

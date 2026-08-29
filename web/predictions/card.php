@@ -20,8 +20,11 @@ try {
     $document = predictions_load_markets((string) $league['league_id'], $season, $week);
     $markets = predictions_open_market_map($document);
     $quickPick = array_values(array_filter(
-        is_array($document['quick_pick'] ?? null) ? $document['quick_pick'] : [],
-        static fn (mixed $id): bool => is_string($id) && isset($markets[$id])
+        array_map(
+            'predictions_normalise_market_id',
+            is_array($document['quick_pick'] ?? null) ? $document['quick_pick'] : []
+        ),
+        static fn (string $id): bool => isset($markets[$id])
     ));
     $quickPick = array_slice($quickPick, 0, PREDICTIONS_MAX_CARD_PICKS);
     $existingCard = predictions_find_card(predictions_database(), (string) $identity['sleeper_user_id'], (string) $league['league_id'], (int) $season, $week);
