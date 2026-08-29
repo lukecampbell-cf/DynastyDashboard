@@ -11,6 +11,14 @@ ini_set('session.use_strict_mode', '1');
 ini_set('session.use_only_cookies', '1');
 session_name('dynasty_hq_predictions');
 
+// Optional deployment-local settings. This file is deliberately untracked so
+// hosts such as Plesk do not have to propagate environment variables through
+// Apache/nginx into PHP-FPM.
+$predictionsLocalConfig = __DIR__ . '/local_config.php';
+if (is_file($predictionsLocalConfig)) {
+    require $predictionsLocalConfig;
+}
+
 function predictions_session_cookie_path(?string $scriptName = null): string
 {
     $directory = str_replace('\\', '/', dirname($scriptName ?? (string) ($_SERVER['SCRIPT_NAME'] ?? '/predictions/index.php')));
@@ -38,6 +46,12 @@ function predictions_data_directory(): string
 
 function predictions_database_path(): string
 {
+    if (defined('PREDICTIONS_DB_PATH_OVERRIDE')) {
+        $override = trim((string) constant('PREDICTIONS_DB_PATH_OVERRIDE'));
+        if ($override !== '') {
+            return $override;
+        }
+    }
     $configured = getenv('PREDICTIONS_DB_PATH');
     return $configured !== false && $configured !== '' ? $configured : predictions_data_directory() . '/predictions.sqlite';
 }

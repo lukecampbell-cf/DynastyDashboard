@@ -25,7 +25,12 @@ function predictions_load_markets(string $leagueId, string|int $season, int $wee
         || (string) ($document['season'] ?? '') !== (string) $season
         || (int) ($document['week'] ?? 0) !== $week
         || !is_array($document['markets'] ?? null)) {
-        throw new DomainException('Prediction markets are not available for this league and week.');
+        throw new DomainException(sprintf(
+            'Prediction markets are not available for league %s in season %s, week %d.',
+            $leagueId,
+            (string) $season,
+            $week
+        ));
     }
     return $document;
 }

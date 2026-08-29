@@ -12,6 +12,7 @@ if (!is_array($identity) || !is_array($league)) {
 $season = (string) ($_SESSION['predictions_season'] ?? '');
 $week = (int) ($_SESSION['predictions_week'] ?? 0);
 $error = null;
+$marketsUnavailable = false;
 $document = null;
 $markets = [];
 $quickPick = [];
@@ -28,7 +29,10 @@ try {
     ));
     $quickPick = array_slice($quickPick, 0, PREDICTIONS_MAX_CARD_PICKS);
     $existingCard = predictions_find_card(predictions_database(), (string) $identity['sleeper_user_id'], (string) $league['league_id'], (int) $season, $week);
-} catch (DomainException | PDOException $exception) {
+} catch (DomainException $exception) {
+    $error = $exception->getMessage();
+    $marketsUnavailable = true;
+} catch (PDOException $exception) {
     $error = $exception->getMessage();
 }
 $submitted = isset($_GET['submitted']) && $_GET['submitted'] === '1';
@@ -47,7 +51,7 @@ $submitted = isset($_GET['submitted']) && $_GET['submitted'] === '1';
 <main class="main">
   <section class="hero compact"><p class="eyebrow">Week <?php echo $week; ?> · Half-PPR · <?php echo predictions_escape($league['name']); ?></p><h1>Dynasty HQ Fantasy Predictions</h1><p class="subtitle">Are you better than the projections?</p></section>
   <?php if ($submitted): ?><div class="alert alert-success" role="status">Card submitted. Your picks and lines are now locked in.</div><?php endif; ?>
-  <?php if ($error !== null): ?><div class="alert alert-error" role="alert"><?php echo predictions_escape($error); ?></div><?php endif; ?>
+  <?php if ($error !== null): ?><div class="alert alert-error" role="alert"><?php echo predictions_escape($error); ?><?php if ($marketsUnavailable): ?> Markets have not yet been prepared for the selected league/week. The private operator must run the documented market-generation command.<?php endif; ?></div><?php endif; ?>
   <?php if ($existingCard !== null): ?>
     <section class="panel status-panel"><p class="eyebrow">Card locked</p><h2>Week <?php echo $week; ?> submitted</h2><p class="panel-copy">Submitted <?php echo predictions_escape($existingCard['submitted_at']); ?>. Submitted cards are immutable.</p></section>
   <?php elseif ($error === null && $markets !== []): ?>
