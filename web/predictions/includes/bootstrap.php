@@ -47,4 +47,5 @@ function predictions_redirect(string $location): never
 require_once __DIR__ . '/json.php';
 require_once __DIR__ . '/csrf.php';
 require_once __DIR__ . '/database.php';
+require_once __DIR__ . '/projection.php';
 require_once __DIR__ . '/predictions.php';
