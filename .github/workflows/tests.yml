@@ -20,3 +20,6 @@ jobs:
 
       - name: Run tests
         run: python -m unittest discover -p "test_*.py" -v
+
+      - name: Run Predictions Phase 1 tests
+        run: php scripts/test_predictions_phase1.php
