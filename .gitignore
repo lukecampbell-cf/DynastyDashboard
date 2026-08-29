@@ -13,4 +13,7 @@ health.json
 cron.log
 dashboard.zip
 bug.html
+predictions.sqlite
+predictions.sqlite-shm
+predictions.sqlite-wal
 /venv
