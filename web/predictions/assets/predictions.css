@@ -46,6 +46,8 @@ input:focus { outline: 2px solid var(--bears-orange); outline-offset: 1px; }
 .player-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 15px; }
 .player-heading, .player-flags { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .player-card h3 { color: #fff; font-size: 19px; margin: 10px 0; }
+.projection-estimate { color: var(--muted); font-size: 12px; margin: -3px 0 10px; }
+.projection-estimate strong { color: var(--bears-orange); font: 700 20px 'Barlow Condensed', sans-serif; margin-right: 3px; }
 .position-tag, .team-tag, .roster-tag { border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
 .position-tag { color: #fff; background: var(--bears-orange); }
 .team-tag, .roster-tag { color: var(--muted); background: var(--navy-4); border: 1px solid var(--border); }

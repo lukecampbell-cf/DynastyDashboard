@@ -13,6 +13,7 @@ $error = null;
 $leagues = [];
 $selectedLeague = null;
 $candidates = [];
+$projections = [];
 try {
     if (!isset($_SESSION['predictions_season'])) {
         $state = predictions_sleeper_state();
@@ -35,6 +36,16 @@ try {
         }
         $players = predictions_sleeper_players();
         $candidates = predictions_candidate_players($roster, $players);
+        $directory = predictions_load_json(predictions_data_directory() . '/player_directory.json') ?? [];
+        $details = predictions_load_json(predictions_data_directory() . '/player_cache.json') ?? [];
+        $projections = predictions_project_roster(
+            $candidates,
+            $directory,
+            predictions_trade_value_format($selectedLeague),
+            $season,
+            (int) ($_SESSION['predictions_week'] ?? 0),
+            $details
+        );
     }
 } catch (DomainException | PredictionsSleeperException $exception) {
     $error = $exception->getMessage();
@@ -78,13 +89,15 @@ $season = (string) ($_SESSION['predictions_season'] ?? '');
   <?php if ($selectedLeague !== null && $error === null): ?>
   <section class="panel roster-panel">
     <div class="section-heading"><div><p class="eyebrow">Step 2</p><h2><?php echo predictions_escape($selectedLeague['name'] ?? 'Selected league'); ?> roster</h2></div><span class="count-pill"><?php echo count($candidates); ?> eligible</span></div>
-    <p class="panel-copy">QB, RB, WR and TE candidates. Projection markets arrive in later phases.</p>
+    <p class="panel-copy">QB, RB, WR and TE candidates with deterministic Projection Model V0 estimates. Prediction markets arrive in later phases.</p>
     <?php if ($candidates === []): ?><p class="empty-state">No eligible roster players were found.</p><?php else: ?>
     <div class="player-grid">
       <?php foreach ($candidates as $player): ?>
       <article class="player-card">
         <div class="player-heading"><span class="position-tag pos-<?php echo strtolower(predictions_escape($player['position'])); ?>"><?php echo predictions_escape($player['position']); ?></span><span class="team-tag"><?php echo predictions_escape($player['team']); ?></span></div>
         <h3><?php echo predictions_escape($player['full_name']); ?></h3>
+        <?php $projection = $projections[$player['player_id']] ?? null; ?>
+        <?php if (is_array($projection)): ?><p class="projection-estimate"><strong><?php echo predictions_escape(number_format((float) $projection['heuristic_projection'], 2)); ?></strong> projected fantasy points</p><?php endif; ?>
         <div class="player-flags">
           <?php if ($player['is_starter']): ?><span class="roster-tag starter">Starter</span><?php endif; ?>
           <?php if ($player['is_taxi']): ?><span class="roster-tag">Taxi</span><?php endif; ?>
