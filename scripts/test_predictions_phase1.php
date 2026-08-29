@@ -55,6 +55,17 @@ expect(count($candidates) === 3, 'Candidate filter did not retain only QB/RB/WR/
 expect(predictions_find_roster([$roster], 'stable-123') !== null, 'Owned roster was not resolved.');
 expect(predictions_find_roster([$roster], 'someone-else') === null, 'Incorrect roster owner was accepted.');
 
+expect(predictions_market_week_from_state(['season_type' => 'pre', 'week' => 3]) === 1,
+    'Sleeper preseason week must map to regular-season prediction week 1.');
+expect(predictions_market_week_from_state(['season_type' => 'regular', 'week' => 3]) === 3,
+    'Sleeper regular-season week must be retained.');
+try {
+    predictions_market_week_from_state(['season_type' => 'regular', 'week' => 0]);
+    throw new RuntimeException('Unsupported Sleeper week should fail.');
+} catch (PredictionsSleeperException) {
+    // Expected.
+}
+
 $pdo = predictions_database();
 $tables = $pdo->query("SELECT name FROM sqlite_master WHERE type = 'table'")->fetchAll(PDO::FETCH_COLUMN);
 expect(in_array('prediction_cards', $tables, true), 'prediction_cards table was not created.');

@@ -15,11 +15,11 @@ $selectedLeague = null;
 $candidates = [];
 $projections = [];
 try {
-    if (!isset($_SESSION['predictions_season'])) {
-        $state = predictions_sleeper_state();
-        $_SESSION['predictions_season'] = (string) $state['season'];
-        $_SESSION['predictions_week'] = (int) ($state['week'] ?? 0);
-    }
+    // Refresh the period here so a session created during preseason cannot
+    // retain Sleeper's preseason week as a regular-season market week.
+    $state = predictions_sleeper_state();
+    $_SESSION['predictions_season'] = (string) $state['season'];
+    $_SESSION['predictions_week'] = predictions_market_week_from_state($state);
     $season = (string) $_SESSION['predictions_season'];
     $leagues = predictions_sleeper_leagues((string) $identity['sleeper_user_id'], $season);
     $requestedLeagueId = (string) ($_GET['league_id'] ?? '');

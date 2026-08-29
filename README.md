@@ -187,6 +187,30 @@ Which value format (`sf` vs `1qb`) applies is decided per league in
 or a second dedicated `QB` slot means Superflex, since RosterAudit's pick and player
 values swing significantly between the two (a 1QB startup values QB picks far lower).
 
+### Fantasy Predictions market generation
+
+Normal Predictions page requests only read prepared market JSON; they never
+start Python or call an LLM. A private operator prepares one week with:
+
+```bash
+python3 predictions_generate_markets.py --username exampleuser --season 2026 --week 4 --all-leagues
+```
+
+To regenerate a subset, replace `--all-leagues` with one or more
+`--league-id LEAGUE_ID` options. The command reads `DASHBOARD_DATA_DIR`
+(the repository root by default), validates the allowlisted username and
+league ownership, writes private snapshots under `prediction_snapshots/`, and
+atomically publishes files under `prediction_markets/`.
+
+The command auto-detects PHP CLI on `PATH` and in Plesk's versioned
+`/opt/plesk/php/*/bin/php` directories. If PHP is elsewhere, set
+`PREDICTIONS_PHP_BINARY=/absolute/path/to/php`.
+
+For hosts where PHP-FPM does not receive `PREDICTIONS_DB_PATH`, copy
+`web/predictions/includes/local_config.example.php` to `local_config.php`
+and set `PREDICTIONS_DB_PATH_OVERRIDE` to a private directory writable by the
+PHP site user. The local file is ignored by Git.
+
 ### `player_directory.json` — weekly full player + trade value directory
 
 Built by `player_directory_agent.py`, called from within `sleeper_agent.run()` right

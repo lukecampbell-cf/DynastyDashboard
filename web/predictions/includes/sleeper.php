@@ -67,6 +67,26 @@ function predictions_sleeper_state(?callable $request = null): array
     return $state;
 }
 
+/** Return the prediction-market week represented by Sleeper's NFL state.
+ *
+ * Sleeper's `week` counts preseason weeks while `season_type` is `pre`.
+ * Predictions markets use regular-season week numbering, so every preseason
+ * state deliberately points at the upcoming regular-season Week 1 market.
+ */
+function predictions_market_week_from_state(array $state): int
+{
+    $seasonType = strtolower(trim((string) ($state['season_type'] ?? '')));
+    if (in_array($seasonType, ['pre', 'preseason'], true)) {
+        return 1;
+    }
+
+    $week = filter_var($state['week'] ?? null, FILTER_VALIDATE_INT);
+    if ($week === false || $week < 1 || $week > 22) {
+        throw new PredictionsSleeperException('Sleeper did not return a supported NFL week.');
+    }
+    return $week;
+}
+
 function predictions_sleeper_leagues(string $userId, string $season, ?callable $request = null): array
 {
     $request ??= 'predictions_sleeper_request';
