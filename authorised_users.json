@@ -1,3 +1,9 @@
 {
-  "authorised_users": []
+  "authorised_users": [
+    {
+      "sleeper_username": "lukeyboy11111",
+      "display_name": "Luke",
+      "enabled": true
+    }
+  ]
 }

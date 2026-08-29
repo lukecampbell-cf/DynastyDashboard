@@ -10,9 +10,18 @@ header("Content-Security-Policy: default-src 'self'; style-src 'self' https://fo
 ini_set('session.use_strict_mode', '1');
 ini_set('session.use_only_cookies', '1');
 session_name('dynasty_hq_predictions');
+
+function predictions_session_cookie_path(?string $scriptName = null): string
+{
+    $directory = str_replace('\\', '/', dirname($scriptName ?? (string) ($_SERVER['SCRIPT_NAME'] ?? '/predictions/index.php')));
+    return $directory === '/' || $directory === '.' ? '/' : rtrim($directory, '/') . '/';
+}
+
 session_set_cookie_params([
     'lifetime' => 0,
-    'path' => '/predictions/',
+    // Scope the cookie to the tool's real mount point (for example
+    // /dashboard/predictions/) rather than assuming it is mounted at root.
+    'path' => predictions_session_cookie_path(),
     'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
     'httponly' => true,
     'samesite' => 'Lax',
@@ -49,3 +58,4 @@ require_once __DIR__ . '/csrf.php';
 require_once __DIR__ . '/database.php';
 require_once __DIR__ . '/projection.php';
 require_once __DIR__ . '/predictions.php';
+require_once __DIR__ . '/cards.php';
