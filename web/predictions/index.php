@@ -13,7 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $identity = predictions_resolve_login((string) ($_POST['sleeper_username'] ?? ''));
         session_regenerate_id(true);
         $_SESSION['predictions_identity'] = $identity;
-        unset($_SESSION['predictions_season'], $_SESSION['predictions_week']);
+        unset($_SESSION['predictions_season'], $_SESSION['predictions_week'], $_SESSION['predictions_league']);
         predictions_redirect('league.php');
     } catch (DomainException | PredictionsSleeperException $exception) {
         $error = $exception->getMessage();

@@ -49,3 +49,4 @@ require_once __DIR__ . '/csrf.php';
 require_once __DIR__ . '/database.php';
 require_once __DIR__ . '/projection.php';
 require_once __DIR__ . '/predictions.php';
+require_once __DIR__ . '/cards.php';

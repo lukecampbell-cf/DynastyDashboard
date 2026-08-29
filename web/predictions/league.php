@@ -46,6 +46,10 @@ try {
             (int) ($_SESSION['predictions_week'] ?? 0),
             $details
         );
+        $_SESSION['predictions_league'] = [
+            'league_id' => (string) $selectedLeague['league_id'],
+            'name' => (string) ($selectedLeague['name'] ?? 'Sleeper league'),
+        ];
     }
 } catch (DomainException | PredictionsSleeperException $exception) {
     $error = $exception->getMessage();
@@ -89,7 +93,8 @@ $season = (string) ($_SESSION['predictions_season'] ?? '');
   <?php if ($selectedLeague !== null && $error === null): ?>
   <section class="panel roster-panel">
     <div class="section-heading"><div><p class="eyebrow">Step 2</p><h2><?php echo predictions_escape($selectedLeague['name'] ?? 'Selected league'); ?> roster</h2></div><span class="count-pill"><?php echo count($candidates); ?> eligible</span></div>
-    <p class="panel-copy">QB, RB, WR and TE candidates with deterministic Projection Model V0 estimates. Prediction markets arrive in later phases.</p>
+    <p class="panel-copy">QB, RB, WR and TE candidates with deterministic Projection Model V0 estimates.</p>
+    <p><a class="primary-button button-link" href="card.php">Play this week's card</a></p>
     <?php if ($candidates === []): ?><p class="empty-state">No eligible roster players were found.</p><?php else: ?>
     <div class="player-grid">
       <?php foreach ($candidates as $player): ?>
