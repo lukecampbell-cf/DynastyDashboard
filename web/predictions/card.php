@@ -40,7 +40,7 @@ $submitted = isset($_GET['submitted']) && $_GET['submitted'] === '1';
   <link rel="stylesheet" href="assets/predictions.css"><script src="assets/predictions.js" defer></script>
 </head>
 <body>
-<header class="site-header"><div class="header-inner"><div class="header-brand"><div class="brand-title">Dynasty <span>HQ</span></div><div class="brand-sub">Fantasy Predictions</div></div><div class="header-meta"><span class="meta-pill"><?php echo predictions_escape($identity['display_name']); ?> · <?php echo predictions_escape($season); ?></span><a class="nav-link" href="league.php?league_id=<?php echo rawurlencode((string) $league['league_id']); ?>">Leagues</a><a class="nav-link" href="../../index.html">Dashboard</a></div></div></header>
+<header class="site-header"><div class="header-inner"><div class="header-brand"><div class="brand-title">Dynasty <span>HQ</span></div><div class="brand-sub">Fantasy Predictions</div></div><div class="header-meta"><span class="meta-pill"><?php echo predictions_escape($identity['display_name']); ?> · <?php echo predictions_escape($season); ?></span><a class="nav-link" href="league.php?league_id=<?php echo rawurlencode((string) $league['league_id']); ?>">Leagues</a><a class="nav-link" href="../dashboard/">Dashboard</a></div></div></header>
 <main class="main">
   <section class="hero compact"><p class="eyebrow">Week <?php echo $week; ?> · Half-PPR · <?php echo predictions_escape($league['name']); ?></p><h1>Dynasty HQ Fantasy Predictions</h1><p class="subtitle">Are you better than the projections?</p></section>
   <?php if ($submitted): ?><div class="alert alert-success" role="status">Card submitted. Your picks and lines are now locked in.</div><?php endif; ?>

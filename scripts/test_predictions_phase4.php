@@ -10,6 +10,9 @@ require dirname(__DIR__) . '/web/predictions/includes/bootstrap.php';
 
 function phase4_expect(bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); }
 
+phase4_expect(predictions_session_cookie_path('/dashboard/predictions/index.php') === '/dashboard/predictions/', 'Nested Predictions cookie path is incorrect.');
+phase4_expect(predictions_session_cookie_path('/predictions/index.php') === '/predictions/', 'Root Predictions cookie path is incorrect.');
+
 $market = [
     'market_id' => 'mkt_1', 'player_id' => 'p1', 'player_name' => 'Test Player', 'position' => 'WR', 'team' => 'GB',
     'line' => 12.5, 'heuristic_projection' => 12.0, 'context_adjustment' => 0.4, 'final_projection' => 12.4,

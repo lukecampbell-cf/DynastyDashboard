@@ -38,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <div class="brand-title">Dynasty <span>HQ</span></div>
       <div class="brand-sub">Fantasy Predictions</div>
     </div>
-    <div class="header-meta"><a class="nav-link" href="../../index.html">Dashboard</a><a class="nav-link" href="../../trade_calculator.php">Trade Calculator</a></div>
+    <div class="header-meta"><a class="nav-link" href="../dashboard/">Dashboard</a><a class="nav-link" href="../trade_calculator.php">Trade Calculator</a></div>
   </div>
 </header>
 <main class="main main-narrow">
