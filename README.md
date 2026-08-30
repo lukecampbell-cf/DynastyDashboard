@@ -367,6 +367,10 @@ small membership/status views under `league_snapshots/`, and caches model result
 `league_analysis_cache.json`. Shared player facts are stored once rather than copied
 into every league snapshot.
 
+`league_reasoning_agent.py` owns league iteration, persistence, caching decisions, and
+result assembly. Compact payload construction, response validation, provider selection,
+and OpenAI/Anthropic adapters live in `league_reasoning_model.py`.
+
 Only signal-bearing players carry news and injury fields in the model payload. News is
 deduplicated and capped at two headlines. A league with no material signal makes no
 model call; an unchanged league reuses its cached result. A changed league makes one
@@ -408,6 +412,10 @@ Renders the reasoning output into a static `index.html` — one card per player 
 trend icon, confidence badge, roster designation (WR1/WR2/etc.), summary, recommendation,
 dynasty/contract/roster-status notes, trade value, and flag chips — and writes it to the
 web root (or `/tmp` for `--dry-run`).
+
+`dashboard_agent.py` owns page composition and atomic publication. Escaped player cards,
+league sections, navigation, evidence notes, and summary components live in
+`dashboard_components.py` and remain re-exported through the agent facade.
 
 Each league renders as a collapsible `<details>` section (only the first league is open
 by default) with a quick-jump nav bar above the leagues that expands and scrolls to the

@@ -188,7 +188,7 @@ class NewsOutput(_NewsOutputRequired, total=False):
     enriched_roster: list[EnrichedPlayer]
 
 
-# ── Reasoning (league_reasoning_agent.py) ──────────────────────────────────
+# ── Reasoning (league_reasoning_agent.py / league_reasoning_model.py) ──────
 
 class ReasoningResult(TypedDict):
     """Dashboard-facing per-player assessment produced by the active league
