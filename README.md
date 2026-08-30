@@ -54,6 +54,8 @@ python -m dynasty_dashboard --debug    # also dumps intermediate JSON to debug/
 Fetches your leagues and rosters from the public Sleeper API (no auth required) for
 the username in `SLEEPER_USERNAME` (`.env`). The season is resolved dynamically from
 Sleeper's `/state/nfl` endpoint, so nothing needs to be hardcoded year to year.
+Format selection, FantasyPros retrieval, and trade-value mapping live in
+`dynasty_dashboard/sleeper_values.py`; the agent remains the orchestration and roster-assembly facade.
 
 For each league, it also:
 
@@ -300,6 +302,9 @@ general-knowledge hedge.
 ## 3. News Agent (`dynasty_dashboard/news_agent.py`)
 
 Pulls player news from six sources and cross-references them by name:
+The concurrency, aggregation, and roster enrichment stay in `news_agent.py`; source-specific
+HTTP and HTML adapters live in `news_sources.py`, where only expected transport, JSON, and
+parsing failures are degraded to per-source health errors.
 
 | Source | What it covers |
 |---|---|
@@ -362,6 +367,10 @@ small membership/status views under `league_snapshots/`, and caches model result
 `league_analysis_cache.json`. Shared player facts are stored once rather than copied
 into every league snapshot.
 
+`league_reasoning_agent.py` owns league iteration, persistence, caching decisions, and
+result assembly. Compact payload construction, response validation, provider selection,
+and OpenAI/Anthropic adapters live in `league_reasoning_model.py`.
+
 Only signal-bearing players carry news and injury fields in the model payload. News is
 deduplicated and capped at two headlines. A league with no material signal makes no
 model call; an unchanged league reuses its cached result. A changed league makes one
@@ -404,6 +413,10 @@ trend icon, confidence badge, roster designation (WR1/WR2/etc.), summary, recomm
 dynasty/contract/roster-status notes, trade value, and flag chips — and writes it to the
 web root (or `/tmp` for `--dry-run`).
 
+`dashboard_agent.py` owns page composition and atomic publication. Escaped player cards,
+league sections, navigation, evidence notes, and summary components live in
+`dashboard_components.py` and remain re-exported through the agent facade.
+
 Each league renders as a collapsible `<details>` section (only the first league is open
 by default) with a quick-jump nav bar above the leagues that expands and scrolls to the
 target league on click — keeps the page navigable as a single static "app" without
@@ -432,12 +445,15 @@ and doesn't call any API. It reads `player_directory.json` (every fantasy-releva
 player + trade value, see step 1's player-directory section above) and `trade_values.json`
 (for its pick tier chart) directly, server-side, on each page load, and lets you build a
 two-sided trade (any player, plus future picks) to get a fairness verdict, computed
-client-side in vanilla JS from the embedded value data. Pick values come from the same
+client-side in vanilla JS from a JSON bootstrap payload. Data loading lives in
+`web/includes/trade_calculator_data.php`, presentation in
+`web/assets/trade-calculator.css`, and behaviour in `web/assets/trade-calculator.js`.
+Pick values come from the same
 RosterAudit tier chart `dynasty_dashboard/trade_value_agent.py` already builds — a pick you add is priced
 at its tier's `min_value` for whichever format (Superflex / 1QB) is selected.
 
 Verdict is `min(sideA, sideB) / max(sideA, sideB)`, bucketed into Yes / Close Yes / Close
-No / No / Outrageously Unbalanced (thresholds are constants at the top of the PHP file).
+No / No / Outrageously Unbalanced (thresholds are constants in the data include).
 A trade below the "No" threshold surfaces a `mailto:` link to email a summary to the
 Bullshit Trade Association — it only opens the visitor's own mail client with a
 pre-filled draft; nothing sends automatically.
@@ -451,10 +467,11 @@ for deployment.
 must exactly match `sf`/`1qb` or it falls back to `sf`, and `player` is only honoured if
 it's an actual existing key in that format's already-loaded player pool — an unknown,
 malformed, or injection-shaped id is silently dropped, never echoed back raw. The
-validated result is embedded client-side the same way `PLAYERS`/`PICK_TIERS` already are
+validated result is embedded in the same JSON bootstrap as the player and pick data
 (`JSON_HEX_*`-flagged `json_encode()`), and preselection reuses the page's existing
 `addAsset()` — no new client-side trust surface. Covered by
-`scripts/test_trade_calculator_validation.php` (plain `php` CLI assertions — this repo has
+`scripts/test_trade_calculator_validation.php` and `scripts/test_trade_calculator_rendering.php`
+(plain `php` CLI assertions — this repo has
 no PHP test framework, matching `scripts/scraper_smoke_test.py`'s own "run manually, not
 part of the unit suite" convention on the Python side).
 

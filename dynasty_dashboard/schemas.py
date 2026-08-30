@@ -128,11 +128,11 @@ class SleeperOutput(TypedDict):
     trade_values_degraded: list[str]
 
 
-# ── News (news_agent.py) ──────────────────────────────────────────────────
+# ── News (news_agent.py / news_sources.py) ────────────────────────────────
 
 class NewsItem(TypedDict, total=False):
     """One scraped news item — the exact key set varies slightly by source
-    (see news_agent.py's individual scrape_*() functions), so every field
+    (see news_sources.py's individual scrape_*() functions), so every field
     but the always-present ones is optional here."""
     source: str
     player_name: Optional[str]
@@ -188,7 +188,7 @@ class NewsOutput(_NewsOutputRequired, total=False):
     enriched_roster: list[EnrichedPlayer]
 
 
-# ── Reasoning (league_reasoning_agent.py) ──────────────────────────────────
+# ── Reasoning (league_reasoning_agent.py / league_reasoning_model.py) ──────
 
 class ReasoningResult(TypedDict):
     """Dashboard-facing per-player assessment produced by the active league
