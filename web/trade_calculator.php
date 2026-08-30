@@ -4,8 +4,7 @@ declare(strict_types=1);
 require __DIR__ . '/includes/trade_calculator_data.php';
 
 $view = trade_calculator_view_model(getenv('DASHBOARD_DATA_DIR') ?: __DIR__, $_GET);
-$jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_THROW_ON_ERROR;
-$bootstrapJson = json_encode($view['bootstrap'], $jsonFlags);
+$bootstrapJson = trade_calculator_encode_bootstrap($view);
 
 function trade_calculator_escape(?string $value): string
 {

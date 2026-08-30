@@ -1,5 +1,8 @@
+import time
 import unittest
+from unittest.mock import MagicMock, mock_open, patch
 
+from dynasty_dashboard import sleeper_values
 from dynasty_dashboard.sleeper_values import (
     determine_ranking_format,
     determine_value_format,
@@ -30,6 +33,23 @@ class SleeperValueHelpersTests(unittest.TestCase):
         self.assertEqual(extract_draft_year({"metadata": {"rookie_year": "2025"}}), 2025)
         self.assertIsNone(extract_draft_year({"metadata": {"rookie_year": "unknown"}}))
         self.assertIsNone(extract_draft_year({}))
+
+
+class FantasyProsCacheTests(unittest.TestCase):
+    @patch.object(sleeper_values.os.path, "exists", return_value=True)
+    @patch.object(sleeper_values.os.path, "getmtime", return_value=time.time())
+    @patch("builtins.open", mock_open(read_data="{truncated"))
+    @patch.object(sleeper_values.httpx, "get")
+    def test_corrupt_fresh_cache_is_ignored_and_refetched(self, mock_get, _mtime, _exists):
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        response.text = 'var ecrData = {"players":[{"player_name":"Test Player","player_id":7,"rank_ecr":12}]};'
+        mock_get.return_value = response
+
+        rankings = sleeper_values.fetch_fantasypros_rankings("dynasty")
+
+        self.assertEqual(rankings["test player"]["fp_rank"], 12)
+        mock_get.assert_called_once()
 
 
 if __name__ == "__main__":

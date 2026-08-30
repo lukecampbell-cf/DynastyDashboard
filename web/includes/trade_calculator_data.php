@@ -67,7 +67,7 @@ function trade_calculator_view_model(string $dataDir, array $query): array
     return [
         'players' => $players,
         'pickTiers' => $pickTiers,
-        'fetchedAt' => $tradeValues['fetched_at'] ?? null,
+        'fetchedAt' => $tradeValues === null ? null : ($tradeValues['fetched_at'] ?? null),
         'loadError' => $loadError,
         'preselect' => $preselect,
         'bootstrap' => [
@@ -78,4 +78,16 @@ function trade_calculator_view_model(string $dataDir, array $query): array
             'preselect' => $preselect,
         ],
     ];
+}
+
+function trade_calculator_encode_bootstrap(array &$view): string
+{
+    $flags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_THROW_ON_ERROR;
+    try {
+        return json_encode($view['bootstrap'], $flags);
+    } catch (JsonException $error) {
+        $view['loadError'] = 'Trade calculator data contains invalid text and could not be loaded. Rebuild the player and trade-value caches.';
+        error_log('Trade calculator bootstrap encoding failed: ' . $error->getMessage());
+        return '{"players":{"sf":[],"1qb":[]},"pickTiers":{"sf":[],"1qb":[]},"btaEmail":"","thresholds":{"yesMin":0.9,"closeYesMin":0.75,"closeNoMin":0.55,"noMin":0.3},"preselect":{"format":"sf","playerId":null,"notFound":false}}';
+    }
 }

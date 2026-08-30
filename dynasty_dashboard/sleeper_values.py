@@ -48,9 +48,15 @@ def fetch_fantasypros_rankings(format_key: str) -> dict:
         log.warning("Unknown FantasyPros ranking format: %s", format_key)
         return {}
     cache_path = f"/tmp/fantasypros_rankings_{format_key}.json"
-    if os.path.exists(cache_path) and time.time() - os.path.getmtime(cache_path) < 86400:
-        with open(cache_path) as cache_file:
-            return json.load(cache_file)
+    try:
+        if os.path.exists(cache_path) and time.time() - os.path.getmtime(cache_path) < 86400:
+            with open(cache_path) as cache_file:
+                cached = json.load(cache_file)
+            if not isinstance(cached, dict):
+                raise ValueError("ranking cache root is not an object")
+            return cached
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        log.warning("Ignoring unreadable FantasyPros %s cache: %s", format_key, exc)
     try:
         response = httpx.get(url, headers=FANTASYPROS_HEADERS, timeout=20, follow_redirects=True)
         response.raise_for_status()

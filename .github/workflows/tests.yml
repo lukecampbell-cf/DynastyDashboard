@@ -33,6 +33,7 @@ jobs:
         run: |
           php scripts/test_trade_calculator_validation.php
           php scripts/test_trade_calculator_rendering.php
+          php scripts/test_trade_calculator_failures.php
 
       - name: Test Predictions access and roster handling
         run: php scripts/test_predictions_access_and_roster.php
