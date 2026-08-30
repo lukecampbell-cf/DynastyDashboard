@@ -44,13 +44,16 @@ input:focus { outline: 2px solid var(--bears-orange); outline-offset: 1px; }
 .league-grid, .player-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .league-card { color: var(--text); background: var(--navy-3); border: 1px solid var(--border); border-radius: 8px; padding: 15px; text-decoration: none; transition: border-color .15s, transform .15s; }
 .league-card:hover, .league-card.selected { border-color: var(--bears-orange); transform: translateY(-1px); }
+.league-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .league-name { display: block; color: #fff; font-size: 18px; font-weight: 700; }
 .league-meta { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+.submitted-flag { flex: 0 0 auto; color: #86efac; background: rgba(34,197,94,.12); border: 1px solid #166534; border-radius: 4px; padding: 2px 7px; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .player-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 15px; }
 .player-heading, .player-flags { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .player-card h3 { color: #fff; font-size: 19px; margin: 10px 0; }
 .projection-estimate { color: var(--muted); font-size: 12px; margin: -3px 0 10px; }
 .projection-estimate strong { color: var(--bears-orange); font: 700 20px 'Barlow Condensed', sans-serif; margin-right: 3px; }
+.roster-card-cta { margin-bottom: 18px; }
 .position-tag, .team-tag, .roster-tag { border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
 .position-tag { color: #fff; background: var(--bears-orange); }
 .team-tag, .roster-tag { color: var(--muted); background: var(--navy-4); border: 1px solid var(--border); }
@@ -81,6 +84,11 @@ input:focus { outline: 2px solid var(--bears-orange); outline-offset: 1px; }
 .submit-bar span { color: var(--muted); }
 .submit-bar strong { color: #fff; }
 .status-panel { border-left: 3px solid #22c55e; }
+.submitted-choice { margin-left: auto; border-radius: 5px; padding: 3px 9px; font: 800 12px 'Barlow Condensed', sans-serif; letter-spacing: .05em; }
+.submitted-choice.over { color: #86efac; background: rgba(34,197,94,.12); border: 1px solid #166534; }
+.submitted-choice.under { color: #fca5a5; background: rgba(239,68,68,.08); border: 1px solid var(--down-dim); }
+.submitted-detail, .submitted-result { color: var(--muted); font-size: 12px; margin-top: 12px; }
+.submitted-result strong { color: #fff; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 @media (max-width: 850px) { .league-grid, .player-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 850px) { .market-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

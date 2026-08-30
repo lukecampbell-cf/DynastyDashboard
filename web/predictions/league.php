@@ -14,6 +14,7 @@ $leagues = [];
 $selectedLeague = null;
 $candidates = [];
 $projections = [];
+$submittedLeagueIds = [];
 try {
     // Refresh the period here so a session created during preseason cannot
     // retain Sleeper's preseason week as a regular-season market week.
@@ -22,11 +23,24 @@ try {
     $_SESSION['predictions_week'] = predictions_market_week_from_state($state);
     $season = (string) $_SESSION['predictions_season'];
     $leagues = predictions_sleeper_leagues((string) $identity['sleeper_user_id'], $season);
+    $submittedLeagueIds = predictions_submitted_league_ids(
+        predictions_database(),
+        (string) $identity['sleeper_user_id'],
+        (int) $season,
+        (int) $_SESSION['predictions_week']
+    );
     $requestedLeagueId = (string) ($_GET['league_id'] ?? '');
     if ($requestedLeagueId !== '') {
         $selectedLeague = predictions_find_league($leagues, $requestedLeagueId);
         if ($selectedLeague === null) {
             throw new DomainException('That league is not available for this Sleeper user.');
+        }
+        $_SESSION['predictions_league'] = [
+            'league_id' => (string) $selectedLeague['league_id'],
+            'name' => (string) ($selectedLeague['name'] ?? 'Sleeper league'),
+        ];
+        if (($_GET['view'] ?? '') === 'card' && isset($submittedLeagueIds[$requestedLeagueId])) {
+            predictions_redirect('card.php');
         }
         // Roster data is requested only after the league is validated against the user's league list.
         $rosters = predictions_sleeper_rosters($requestedLeagueId);
@@ -46,12 +60,8 @@ try {
             (int) ($_SESSION['predictions_week'] ?? 0),
             $details
         );
-        $_SESSION['predictions_league'] = [
-            'league_id' => (string) $selectedLeague['league_id'],
-            'name' => (string) ($selectedLeague['name'] ?? 'Sleeper league'),
-        ];
     }
-} catch (DomainException | PredictionsSleeperException $exception) {
+} catch (DomainException | PredictionsSleeperException | PDOException $exception) {
     $error = $exception->getMessage();
 }
 $season = (string) ($_SESSION['predictions_season'] ?? '');
@@ -82,8 +92,8 @@ $season = (string) ($_SESSION['predictions_season'] ?? '');
     <?php if ($leagues === []): ?><p class="empty-state">No NFL leagues were found for the active season.</p><?php else: ?>
     <div class="league-grid">
       <?php foreach ($leagues as $league): $leagueId = (string) ($league['league_id'] ?? ''); ?>
-      <a class="league-card<?php echo $selectedLeague !== null && (string) $selectedLeague['league_id'] === $leagueId ? ' selected' : ''; ?>" href="?league_id=<?php echo rawurlencode($leagueId); ?>">
-        <span class="league-name"><?php echo predictions_escape($league['name'] ?? 'Unnamed League'); ?></span>
+      <a class="league-card<?php echo $selectedLeague !== null && (string) $selectedLeague['league_id'] === $leagueId ? ' selected' : ''; ?>" href="?league_id=<?php echo rawurlencode($leagueId); ?><?php echo isset($submittedLeagueIds[$leagueId]) ? '&amp;view=card' : ''; ?>">
+        <span class="league-card-heading"><span class="league-name"><?php echo predictions_escape($league['name'] ?? 'Unnamed League'); ?></span><?php if (isset($submittedLeagueIds[$leagueId])): ?><span class="submitted-flag">Submitted</span><?php endif; ?></span>
         <span class="league-meta"><?php echo predictions_escape($league['total_rosters'] ?? '—'); ?> teams · <?php echo predictions_escape($season); ?></span>
       </a>
       <?php endforeach; ?>
@@ -94,7 +104,7 @@ $season = (string) ($_SESSION['predictions_season'] ?? '');
   <section class="panel roster-panel">
     <div class="section-heading"><div><p class="eyebrow">Step 2</p><h2><?php echo predictions_escape($selectedLeague['name'] ?? 'Selected league'); ?> roster</h2></div><span class="count-pill"><?php echo count($candidates); ?> eligible</span></div>
     <p class="panel-copy">QB, RB, WR and TE candidates with deterministic Projection Model V0 estimates.</p>
-    <p><a class="primary-button button-link" href="card.php">Play this week's card</a></p>
+    <p class="roster-card-cta"><a class="primary-button button-link" href="card.php">Play this week's card</a></p>
     <?php if ($candidates === []): ?><p class="empty-state">No eligible roster players were found.</p><?php else: ?>
     <div class="player-grid">
       <?php foreach ($candidates as $player): ?>
