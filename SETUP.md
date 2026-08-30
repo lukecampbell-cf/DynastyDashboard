@@ -205,6 +205,79 @@ read the caches from there instead.
 
 ---
 
+## Fantasy Predictions deployment
+
+Predictions is optional and isolated from the generated dashboard. The public
+web root contains `index.html`, the trade calculator, and the contents of
+`web/predictions/`. SQLite, markets, snapshots, and score files stay private:
+
+```text
+/var/www/vhosts/your-domain.com/
+├── httpdocs/dashboard/
+│   ├── index.html
+│   ├── trade_calculator.php
+│   ├── trade_calculator_lib.php
+│   └── predictions/
+└── private/
+    ├── dynasty-dashboard-data/
+    │   ├── authorised_users.json
+    │   ├── player_cache.json
+    │   ├── player_directory.json
+    │   ├── prediction_markets/
+    │   └── prediction_snapshots/
+    ├── predictions/predictions.sqlite
+    └── settlement/actual_scores_YYYY_WW.json
+```
+
+Create private locations with minimal pipeline/PHP-FPM access (replace the
+user and group for your host):
+
+```bash
+sudo install -d -m 0750 -o "$USER" -g www-data /var/www/vhosts/your-domain.com/private/dynasty-dashboard-data
+sudo install -d -m 0770 -o "$USER" -g www-data /var/www/vhosts/your-domain.com/private/predictions
+sudo install -d -m 0700 -o "$USER" -g "$USER" /var/www/vhosts/your-domain.com/private/settlement
+```
+
+Set these for market generation and pass the first two to PHP-FPM (for nginx,
+`fastcgi_param` inside the Predictions PHP location is sufficient):
+
+```dotenv
+DASHBOARD_DATA_DIR=/var/www/vhosts/your-domain.com/private/dynasty-dashboard-data
+PREDICTIONS_DB_PATH=/var/www/vhosts/your-domain.com/private/predictions/predictions.sqlite
+# PREDICTIONS_PHP_BINARY=/opt/plesk/php/8.3/bin/php
+```
+
+If PHP-FPM does not receive `PREDICTIONS_DB_PATH`, copy
+`web/predictions/includes/local_config.example.php` to `local_config.php` and
+set the same private SQLite path there. The file is gitignored. Never place
+score JSON, SQLite (including `-wal`/`-shm`), snapshots, or `local_config.php`
+under the public directory. Application-created private JSON and SQLite files
+are mode `0600`; directory permissions provide the shared access boundary.
+
+Deploy without nesting the source directory twice:
+
+```bash
+rsync -a --delete web/predictions/ /var/www/vhosts/your-domain.com/httpdocs/dashboard/predictions/
+```
+
+Run the complete offline suite before deployment:
+
+```bash
+python -m unittest discover -p "test_*.py" -v
+php scripts/test_predictions_phase1.php
+php scripts/test_predictions_phase2.php
+php scripts/test_predictions_phase4.php
+php scripts/test_predictions_phase5.php
+php scripts/test_predictions_phase6.php
+```
+
+Verify `/dashboard/`, `/dashboard/predictions/`, and navigation in both
+directions. A deliberately invalid Predictions database path in staging must
+affect only `/dashboard/predictions/`; static `/dashboard/index.html` must
+continue to load.
+
+---
+
 ## Troubleshooting
 
 **"API key environment variable not set"**

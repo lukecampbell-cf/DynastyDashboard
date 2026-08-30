@@ -109,8 +109,13 @@ function predictions_submit_card(PDO $pdo, array $identity, array $league, array
     }
 
     $submittedAt = ($now ?? new DateTimeImmutable('now', new DateTimeZone('UTC')))->setTimezone(new DateTimeZone('UTC'))->format(DATE_ATOM);
+    $transactionStarted = false;
     try {
+        // PDO does not mark transactions started with raw BEGIN IMMEDIATE as
+        // active in every PHP/SQLite build. Keep the immediate write lock, but
+        // finish the same SQL-managed transaction with explicit SQL too.
         $pdo->exec('BEGIN IMMEDIATE');
+        $transactionStarted = true;
         $card = $pdo->prepare('INSERT INTO prediction_cards
             (sleeper_user_id, sleeper_username, display_name, league_id, league_name, season, week, status, submitted_at)
             VALUES (:user_id, :username, :display_name, :league_id, :league_name, :season, :week, \'submitted\', :submitted_at)');
@@ -137,19 +142,21 @@ function predictions_submit_card(PDO $pdo, array $identity, array $league, array
                 ':model_version' => (string) ($market['model_version'] ?? 'v0-heuristic'),
             ]);
         }
-        $pdo->commit();
+        $pdo->exec('COMMIT');
+        $transactionStarted = false;
         return $cardId;
     } catch (PDOException $exception) {
-        if ($pdo->inTransaction()) {
-            $pdo->rollBack();
+        if ($transactionStarted) {
+            $pdo->exec('ROLLBACK');
+            $transactionStarted = false;
         }
         if ((string) $exception->getCode() === '23000' || str_contains($exception->getMessage(), 'UNIQUE constraint failed')) {
             throw new DomainException('A card has already been submitted for this league and week.');
         }
         throw $exception;
     } catch (Throwable $exception) {
-        if ($pdo->inTransaction()) {
-            $pdo->rollBack();
+        if ($transactionStarted) {
+            $pdo->exec('ROLLBACK');
         }
         throw $exception;
     }
