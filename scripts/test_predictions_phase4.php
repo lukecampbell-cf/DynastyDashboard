@@ -36,6 +36,16 @@ $league = ['league_id' => 'L1', 'name' => 'League'];
 $cardId = predictions_submit_card($pdo, $identity, $league, $loaded, $picks, new DateTimeImmutable('2026-09-10T17:00:00Z'));
 $saved = $pdo->query('SELECT * FROM predictions WHERE card_id = ' . $cardId)->fetch();
 phase4_expect($saved['selection'] === 'OVER' && (float) $saved['line_taken'] === 12.5, 'Authoritative immutable snapshot was not saved.');
+$submittedPicks = predictions_card_picks($pdo, $cardId);
+phase4_expect(count($submittedPicks) === 1, 'Submitted card picks were not loaded.');
+phase4_expect($submittedPicks[0]['player_name'] === 'Test Player'
+    && $submittedPicks[0]['selection'] === 'OVER'
+    && (float) $submittedPicks[0]['line_taken'] === 12.5,
+    'Submitted card readout did not retain the immutable player, selection and line.');
+$submittedLeagues = predictions_submitted_league_ids($pdo, 'u1', 2026, 4);
+phase4_expect(isset($submittedLeagues['L1']), 'Submitted league flag lookup did not find the card.');
+phase4_expect(predictions_submitted_league_ids($pdo, 'u1', 2026, 5) === [],
+    'Submitted league flag lookup crossed prediction weeks.');
 try { predictions_submit_card($pdo, $identity, $league, $loaded, $picks, new DateTimeImmutable('2026-09-10T17:01:00Z')); phase4_expect(false, 'Duplicate card was accepted.'); } catch (DomainException) {}
 try { predictions_submit_card($pdo, ['sleeper_user_id'=>'u2','sleeper_username'=>'u2','display_name'=>'U2'], $league, $loaded, ['forged'=>'OVER'], new DateTimeImmutable('2026-09-10T17:00:00Z')); phase4_expect(false, 'Forged market was accepted.'); } catch (DomainException) {}
 phase4_expect((int) $pdo->query('SELECT COUNT(*) FROM prediction_cards')->fetchColumn() === 1, 'Failed transaction left a partial card.');

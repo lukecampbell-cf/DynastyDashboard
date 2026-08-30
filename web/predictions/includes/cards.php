@@ -162,3 +162,28 @@ function predictions_find_card(PDO $pdo, string $userId, string $leagueId, int $
     $card = $statement->fetch();
     return is_array($card) ? $card : null;
 }
+
+function predictions_card_picks(PDO $pdo, int $cardId): array
+{
+    if ($cardId < 1) {
+        return [];
+    }
+    $statement = $pdo->prepare('SELECT market_id, player_id, player_name, position, nfl_team,
+        selection, line_taken, heuristic_projection, context_adjustment, final_projection,
+        model_version, result, actual_points
+        FROM predictions WHERE card_id = ? ORDER BY id ASC');
+    $statement->execute([$cardId]);
+    return $statement->fetchAll();
+}
+
+function predictions_submitted_league_ids(PDO $pdo, string $userId, int $season, int $week): array
+{
+    $statement = $pdo->prepare('SELECT league_id FROM prediction_cards
+        WHERE sleeper_user_id = ? AND season = ? AND week = ? AND status != \'void\'');
+    $statement->execute([$userId, $season, $week]);
+    $leagueIds = [];
+    foreach ($statement->fetchAll(PDO::FETCH_COLUMN) as $leagueId) {
+        $leagueIds[(string) $leagueId] = true;
+    }
+    return $leagueIds;
+}

@@ -17,6 +17,7 @@ $document = null;
 $markets = [];
 $quickPick = [];
 $existingCard = null;
+$submittedPicks = [];
 try {
     $document = predictions_load_markets((string) $league['league_id'], $season, $week);
     $markets = predictions_open_market_map($document);
@@ -28,7 +29,11 @@ try {
         static fn (string $id): bool => isset($markets[$id])
     ));
     $quickPick = array_slice($quickPick, 0, PREDICTIONS_MAX_CARD_PICKS);
-    $existingCard = predictions_find_card(predictions_database(), (string) $identity['sleeper_user_id'], (string) $league['league_id'], (int) $season, $week);
+    $database = predictions_database();
+    $existingCard = predictions_find_card($database, (string) $identity['sleeper_user_id'], (string) $league['league_id'], (int) $season, $week);
+    if ($existingCard !== null) {
+        $submittedPicks = predictions_card_picks($database, (int) $existingCard['id']);
+    }
 } catch (DomainException $exception) {
     $error = $exception->getMessage();
     $marketsUnavailable = true;
@@ -54,6 +59,24 @@ $submitted = isset($_GET['submitted']) && $_GET['submitted'] === '1';
   <?php if ($error !== null): ?><div class="alert alert-error" role="alert"><?php echo predictions_escape($error); ?><?php if ($marketsUnavailable): ?> Markets have not yet been prepared for the selected league/week. The private operator must run the documented market-generation command.<?php endif; ?></div><?php endif; ?>
   <?php if ($existingCard !== null): ?>
     <section class="panel status-panel"><p class="eyebrow">Card locked</p><h2>Week <?php echo $week; ?> submitted</h2><p class="panel-copy">Submitted <?php echo predictions_escape($existingCard['submitted_at']); ?>. Submitted cards are immutable.</p></section>
+    <section class="panel submitted-card-panel">
+      <div class="section-heading"><div><p class="eyebrow">Your card</p><h2>Submitted picks</h2></div><span class="count-pill"><?php echo count($submittedPicks); ?> picks</span></div>
+      <?php if ($submittedPicks === []): ?>
+        <p class="empty-state">No submitted picks were found for this card.</p>
+      <?php else: ?>
+        <div class="market-grid submitted-market-grid">
+          <?php foreach ($submittedPicks as $pick): $selection = strtoupper((string) $pick['selection']); ?>
+            <article class="market-card submitted-market-card">
+              <div class="player-heading"><span class="position-tag"><?php echo predictions_escape($pick['position']); ?></span><span class="team-tag"><?php echo predictions_escape($pick['nfl_team'] ?? 'FA'); ?></span><span class="submitted-choice <?php echo strtolower(predictions_escape($selection)); ?>"><?php echo predictions_escape($selection); ?></span></div>
+              <h3><?php echo predictions_escape($pick['player_name']); ?></h3>
+              <div class="market-line"><strong><?php echo predictions_escape(number_format((float) $pick['line_taken'], 1)); ?></strong><span>Fantasy points</span></div>
+              <p class="submitted-detail">Line locked at submission · <?php echo predictions_escape($pick['model_version']); ?></p>
+              <?php if (($pick['result'] ?? 'PENDING') !== 'PENDING'): ?><p class="submitted-result">Result: <strong><?php echo predictions_escape($pick['result']); ?></strong><?php if ($pick['actual_points'] !== null): ?> · <?php echo predictions_escape(number_format((float) $pick['actual_points'], 1)); ?> actual<?php endif; ?></p><?php endif; ?>
+            </article>
+          <?php endforeach; ?>
+        </div>
+      <?php endif; ?>
+    </section>
   <?php elseif ($error === null && $markets !== []): ?>
   <form method="post" action="submit.php" data-card-form>
     <section class="panel card-toolbar"><div><p class="eyebrow">Quick Pick</p><h2>Make your calls</h2><p class="panel-copy">Choose OVER or UNDER for up to six players. Quick Pick highlights this week's most interesting markets.</p></div><div class="mode-toggle" role="group" aria-label="Card mode"><button type="button" class="mode-button active" data-mode="quick">Quick Pick</button><button type="button" class="mode-button" data-mode="build">Build My Card</button></div></section>
