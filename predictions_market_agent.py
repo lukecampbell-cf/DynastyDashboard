@@ -113,8 +113,16 @@ def validate_analysis(raw: Any, valid_ids: set[str]) -> dict[str, dict]:
         confidence = _bounded_number(item.get("confidence"), 0, 1)
         interest = _bounded_number(item.get("market_interest_score"), 0, 100)
         trend = item.get("role_trend")
-        if None in (role, quality, risk, adjustment, confidence, interest) or trend not in {"up", "steady", "down"}:
+        if any(value is None for value in (role, quality, risk, adjustment, confidence, interest)):
             continue
+        if trend not in {"up", "steady", "down"}:
+            continue
+        assert role is not None
+        assert quality is not None
+        assert risk is not None
+        assert adjustment is not None
+        assert confidence is not None
+        assert interest is not None
         validated[player_id] = {
             "role_score": round(role, 2),
             "player_quality_score": round(quality, 2),

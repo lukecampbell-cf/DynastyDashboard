@@ -1,7 +1,7 @@
 """
 Schemas
 TypedDict definitions for the record shapes that flow between the pipeline's
-stages (sleeper_agent -> news_agent -> reasoning_agent -> dashboard_agent).
+stages (sleeper_agent -> news_agent -> league_reasoning_agent -> dashboard_agent).
 These were previously untyped `dict`s described only in prose docstrings —
 formalizing them here lets a type checker (mypy) catch a key renamed or
 typoed in one module but not updated in another, which is easy to miss when
@@ -164,7 +164,7 @@ class EnrichedPlayer(ResolvedPlayer, total=False):
     has_injury_flag: bool
     news_injury_status: Optional[str]
     has_news: bool
-    season: str  # stamped on by reasoning_agent.run()'s Pass 1
+    season: str
 
 
 class SourceStatus(TypedDict):
@@ -188,12 +188,12 @@ class NewsOutput(_NewsOutputRequired, total=False):
     enriched_roster: list[EnrichedPlayer]
 
 
-# ── Reasoning (reasoning_agent.py) ─────────────────────────────────────────
+# ── Reasoning (league_reasoning_agent.py) ──────────────────────────────────
 
 class ReasoningResult(TypedDict):
-    """The Anthropic API's structured per-player assessment — see
-    reasoning_agent.SYSTEM_PROMPT for the authoritative schema this
-    formalizes; keep the two in sync if the prompt's schema changes."""
+    """Dashboard-facing per-player assessment produced by the active league
+    reasoning path. Keep this aligned with league_reasoning_agent's validated
+    model action and deterministic no-action result."""
     trend: str          # "UP" | "DOWN" | "WATCH" | "NO_ACTION" (deterministic only)
     confidence: str      # "HIGH" | "MEDIUM" | "LOW"
     summary: str
@@ -205,33 +205,8 @@ class ReasoningResult(TypedDict):
     flags: list[str]
 
 
-class AnalysisCacheEntry(TypedDict):
-    """One entry in reasoning_agent's player_analysis_cache.json, keyed by
-    Sleeper player_id. "signal" is compute_signal_fingerprint()'s output —
-    deliberately untyped here (dict) since it's an opaque comparison key,
-    not a shape anything reads field-by-field.
-
-    generated_at and last_reused_at are deliberately separate: generated_at
-    is set only when the LLM genuinely produced this analysis, and is what
-    QUIET_REUSE_MAX_AGE is measured against. last_reused_at is bumped every
-    time a quiet reuse serves this entry without a fresh call — if reuse
-    also bumped generated_at, an entry that keeps quietly reusing could
-    never age past QUIET_REUSE_MAX_AGE, defeating the forced-refresh."""
-    full_name: str
-    reasoning: ReasoningResult
-    generated_at: str
-    last_reused_at: str
-    signal: dict
-
-
-class SummaryCacheEntry(TypedDict):
-    """One entry in reasoning_agent's league_summary_cache.json, keyed by league_id."""
-    summary: str
-    fingerprint: dict
-
-
 class AnalysedPlayer(EnrichedPlayer, total=False):
-    """An EnrichedPlayer after reasoning_agent.run() attaches its verdict —
+    """An EnrichedPlayer after league_reasoning_agent.run() attaches its verdict —
     dashboard_agent.render_player_card()'s actual input shape.
 
     change_status is signal_evidence.classify_change_status()'s output —
@@ -272,7 +247,7 @@ class GlobalTrends(TypedDict):
 
 
 class ReasoningOutput(TypedDict):
-    """reasoning_agent.run()'s top-level return value — dashboard_agent.py's
+    """league_reasoning_agent.run()'s top-level return value — dashboard_agent.py's
     entire input.
 
     change_summary is a deduped-by-player (a player rostered in multiple

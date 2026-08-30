@@ -193,7 +193,7 @@ def publish_one(snapshot: dict, data_dir: Path, *, generator: Callable[..., dict
 
 def run(args: argparse.Namespace, *, client: SleeperClient | None = None,
         snapshot_builder: Callable[..., dict] = build_snapshot,
-        publisher: Callable[..., tuple[dict, Path]] = publish_one) -> list[tuple[str, Path]]:
+        publisher: Callable[..., tuple[dict, Path, str]] = publish_one) -> list[tuple[str, Path]]:
     data_dir = Path(os.environ.get("DASHBOARD_DATA_DIR", ROOT)).resolve()
     username = authorised_username(data_dir, args.username)  # Must precede every Sleeper request.
     client = client or SleeperClient()

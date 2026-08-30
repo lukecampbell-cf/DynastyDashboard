@@ -138,7 +138,9 @@ dynasty-dashboard/
 ├── player_cache.json     ← per-player bio + contract cache (self-building, safe to delete)
 ├── trade_values.json     ← RosterAudit dynasty trade values, sf & 1qb refreshed independently (weekly)
 ├── player_directory.json ← every fantasy-relevant NFL player + trade value (weekly, powers trade_calculator.php)
-├── player_analysis_cache.json ← per-player Claude reasoning cache (see README's Reasoning Agent section)
+├── player_store.json      ← canonical player facts used by league reasoning
+├── league_snapshots/      ← compact per-league membership/status views
+├── league_analysis_cache.json ← successful batched league analyses and fingerprints
 ├── health.json            ← last run status, per-step/per-source errors, stale-cache flags
 ├── requirements.txt
 ├── .env                  ← your API key (never commit)

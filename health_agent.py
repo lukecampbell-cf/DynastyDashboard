@@ -39,20 +39,16 @@ HEALTH_PATH = PROJECT_ROOT / "health.json"
 # module first — this file has to stay import-light enough to run even when
 # something else in the pipeline is broken.
 #
-# player_analysis_cache.json is the exception: it's rewritten unconditionally
-# at the end of every reasoning_agent.run(), so its mtime doubles as "how
+# league_analysis_cache.json is the exception: it's rewritten unconditionally
+# at the end of every league_reasoning_agent.run(), so its mtime doubles as "how
 # long since the pipeline last completed step 4" — a proxy for "is cron
-# still running at all." Its own internal per-player freshness window
-# (reasoning_agent.CACHE_FRESHNESS, 4h) is deliberately NOT reused as the
-# threshold here — that equals the recommended cron interval itself, so the
-# file would read "stale" for roughly half of every cycle even when cron is
-# firing exactly on schedule. 3x the recommended interval gives room for a
+# still running at all." The 3x recommended cron interval gives room for a
 # missed or delayed tick without false-alarming on normal cron jitter.
 TRACKED_CACHES = [
     ("player_cache.json", PROJECT_ROOT / "player_cache.json", 14 * 86400),
     ("trade_values.json", PROJECT_ROOT / "trade_values.json", 7 * 86400),
     ("player_directory.json", PROJECT_ROOT / "player_directory.json", 7 * 86400),
-    ("player_analysis_cache.json", PROJECT_ROOT / "player_analysis_cache.json", 3 * 4 * 3600),
+    ("league_analysis_cache.json", PROJECT_ROOT / "league_analysis_cache.json", 3 * 4 * 3600),
 ]
 
 

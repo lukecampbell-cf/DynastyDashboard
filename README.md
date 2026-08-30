@@ -4,8 +4,8 @@
 
 An automated pipeline that pulls your Sleeper fantasy football rosters, cross-references
 player news from six sites, layers in FantasyPros consensus rankings and RosterAudit
-dynasty trade value, runs it all through Claude for a trend/recommendation call per
-player, and renders the result as a static HTML dashboard.
+dynasty trade value, runs signal-bearing league changes through the configured AI
+provider, and renders the result as a static HTML dashboard.
 
 For install/deploy/cron instructions, see [SETUP.md](SETUP.md). This file covers what
 the pipeline does and how the pieces fit together.
@@ -24,7 +24,7 @@ orchestrator.py
   ├─ 1. sleeper_agent.py   → your rosters, enriched with FantasyPros rank + RosterAudit trade value
   ├─ 2. contract_agent.py  → real NFL contract terms per player, scraped from Spotrac
   ├─ 3. news_agent.py      → injury/trade/depth-chart news, matched to your roster
-  ├─ 4. reasoning_agent.py → Claude analysis: trend, confidence, recommendation
+  ├─ 4. league_reasoning_agent.py → batched league analysis + deterministic stable verdicts
   └─ 5. dashboard_agent.py → renders + writes index.html
 ```
 
@@ -290,8 +290,8 @@ match, e.g. a very deep stash) is cached too, so it isn't re-queried every run �
 simply retried after the same 4-week window in case the player gets a Spotrac page
 later.
 
-This contract data feeds `reasoning_agent.py`'s `contract_note`: when a verified match
-exists, Claude is instructed to state those actual terms rather than its own
+This contract data feeds `league_reasoning_agent.py`'s `contract_note`: when a verified match
+exists, the configured model receives those actual terms rather than relying on
 best-effort guess; when it doesn't, the prompt falls back to the previous
 general-knowledge hedge.
 
@@ -410,7 +410,7 @@ target league on click — keeps the page navigable as a single static "app" wit
 needing a build step or JS framework.
 
 A header banner ("Since the previous analysis: **3** changed materially · **2** may need
-a look · **301** stable") summarises `reasoning_agent.py`'s `change_summary` in plain
+a look · **301** stable") summarises `league_reasoning_agent.py`'s `change_summary` in plain
 language — no cache/fingerprint/model terminology — so opening the dashboard answers
 "what's new since I last looked?" without scanning every card; it's omitted entirely when
 there's nothing to report. Within each trend column, `material_change` players sort ahead
@@ -470,8 +470,9 @@ part of the unit suite" convention on the Python side).
 | `player_cache.json` → `.<id>.contract` | Spotrac contract terms per player | 4 weeks per player |
 | `trade_values.json` (project root) | RosterAudit dynasty trade values + pick tier chart, sf & 1qb (each format refreshed/preserved independently) | 1 week per format |
 | `player_directory.json` (project root) | Every fantasy-relevant NFL player + trade value (sf & 1qb), for trade_calculator.php | 1 week |
-| `player_analysis_cache.json` (project root) | Per-player Claude reasoning, keyed by Sleeper player_id — `generated_at`/`last_reused_at` split, see step 4 | 7 days per player (`generated_at` only) |
-| `league_summary_cache.json` (project root) | Per-league Haiku executive summary, keyed by league_id | regenerated only when trend/injury counts change |
+| `player_store.json` (project root) | Canonical player facts, keyed by Sleeper player ID | rewritten after each reasoning run |
+| `league_snapshots/*.json` | Per-league roster membership/status snapshots | rewritten after each reasoning run |
+| `league_analysis_cache.json` (project root) | Provider/model/payload fingerprint and the last successful batched league analysis | reused until provider, model, or payload changes |
 | `pipeline.log` | Orchestrator run log | append-only |
 | `health.json` (project root) | Last run status, per-step (and per-news-source) errors, stale-cache flags | rewritten every run |
 | `debug/*.json` | Intermediate stage output, only with `--debug` | per run |
@@ -498,7 +499,7 @@ could otherwise briefly serve a half-written page.
   own `ok`/`error`/`items` count). A single "news step failed" flag hides which of six
   independent sources is actually broken; this doesn't.
 - **`stale_caches`** — `player_cache.json`, `trade_values.json`, `player_directory.json`,
-  and `player_analysis_cache.json` checked against their own freshness windows (mirroring
+  and `league_analysis_cache.json` checked against their freshness windows (mirroring
   the constants each agent already enforces on itself). A cache going stale here means
   something's been silently broken for days — an expired API key, a changed selector, a
   dead cron job — not just "no news today."
