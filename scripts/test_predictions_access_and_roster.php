@@ -76,4 +76,4 @@ foreach (glob($testData . '/*') ?: [] as $path) {
     unlink($path);
 }
 rmdir($testData);
-echo "Phase 1 predictions tests passed.\n";
+echo "Access and roster tests passed.\n";

@@ -125,7 +125,12 @@ class PredictionsGenerateMarketsTests(unittest.TestCase):
                 with pgm.generation_lock(path):
                     pass
 
-    def test_snapshot_uses_canonical_php_phase2_fixture_and_schema(self):
+    def test_snapshot_matches_canonical_php_projection_and_schema(self):
+        try:
+            php_binary = pgm.resolve_php_binary()
+        except pgm.GenerationError:
+            self.skipTest("PHP CLI is not available")
+
         directory = {
             "wr-low": {"position": "WR", "values": {"sf": {"value": 10}}},
             "wr-mid-a": {"position": "WR", "values": {"sf": {"value": 20}}},
@@ -139,11 +144,19 @@ class PredictionsGenerateMarketsTests(unittest.TestCase):
         roster = {"owner_id": "U1", "players": ["wr-high"], "starters": ["wr-high"]}
         sleeper_players = {"wr-high": {"full_name": "Fixture WR", "position": "WR", "team": "GB",
                                         "injury_status": "Questionable"}}
-        snapshot = pgm.build_snapshot(self.root, "2026", 1, league, roster, sleeper_players)
+        snapshot = pgm.build_snapshot(
+            self.root,
+            "2026",
+            1,
+            league,
+            roster,
+            sleeper_players,
+            php_binary=php_binary,
+        )
         self.assertEqual((snapshot["season"], snapshot["week"], snapshot["league_id"], snapshot["league_name"]),
                          ("2026", 1, "L1", "Fixture"))
         projected = snapshot["players"][0]
-        self.assertEqual(projected["heuristic_projection"], 15.5)  # Same fixture asserted by Phase 2 PHP tests.
+        self.assertEqual(projected["heuristic_projection"], 15.5)
         self.assertEqual(projected["components"]["rank_adjustment"], 5)
         self.assertEqual(projected["model_version"], "v0-heuristic")
         self.assertRegex(projected["input_hash"], r"^[0-9a-f]{64}$")

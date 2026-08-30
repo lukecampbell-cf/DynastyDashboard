@@ -136,13 +136,13 @@ def build_snapshot(data_dir: Path, season: str, week: int, league: dict, roster:
     except OSError as exc:
         raise GenerationError(f"Could not start PHP CLI at {binary}: {exc}") from exc
     if process.returncode != 0:
-        raise GenerationError(process.stderr.strip() or "Phase 2 snapshot builder failed")
+        raise GenerationError(process.stderr.strip() or "Projection snapshot builder failed")
     try:
         snapshot = json.loads(process.stdout)
     except json.JSONDecodeError as exc:
-        raise GenerationError("Phase 2 snapshot builder returned invalid JSON") from exc
+        raise GenerationError("Projection snapshot builder returned invalid JSON") from exc
     if not isinstance(snapshot, dict) or not isinstance(snapshot.get("players"), list):
-        raise GenerationError("Phase 2 snapshot builder returned an invalid snapshot")
+        raise GenerationError("Projection snapshot builder returned an invalid snapshot")
     return snapshot
 
 
@@ -169,7 +169,7 @@ def publish_one(snapshot: dict, data_dir: Path, *, generator: Callable[..., dict
     with generation_lock(lock_path):
         write_json_atomic(snapshot_path, snapshot)
         # Stage the market document separately. Only replace the authoritative
-        # file after Phase 3 returns and the staged document validates.
+        # file after market generation returns and the staged document validates.
         with tempfile.TemporaryDirectory(dir=data_dir, prefix=".prediction-market-") as staging, \
                 generation_lock(data_dir / ".prediction_locks" / "weekly_player_analysis.lock", blocking=True):
             before = _load_object(cache_path, "weekly analysis cache") if cache_path.exists() else {}
@@ -184,7 +184,7 @@ def publish_one(snapshot: dict, data_dir: Path, *, generator: Callable[..., dict
             document = _load_object(staged, "staged market")
             if (str(document.get("league_id")) != league_id or str(document.get("season")) != season
                     or int(document.get("week", 0)) != week or not isinstance(document.get("markets"), list)):
-                raise GenerationError("Phase 3 produced an invalid market document")
+                raise GenerationError("Market generation produced an invalid document")
             final_path.parent.mkdir(parents=True, exist_ok=True)
             os.replace(staged, final_path)
             os.chmod(final_path, 0o644)

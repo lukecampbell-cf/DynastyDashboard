@@ -27,17 +27,17 @@ jobs:
       - name: Run tests
         run: python -m unittest discover -p "test_*.py" -v
 
-      - name: Run Predictions Phase 1 tests
-        run: php scripts/test_predictions_phase1.php
+      - name: Test Predictions access and roster handling
+        run: php scripts/test_predictions_access_and_roster.php
 
-      - name: Run Predictions Phase 2 tests
-        run: php scripts/test_predictions_phase2.php
+      - name: Test Predictions projection engine
+        run: php scripts/test_predictions_projection_engine.php
 
-      - name: Run Predictions Phase 4 tests
-        run: php scripts/test_predictions_phase4.php
+      - name: Test Predictions card submission
+        run: php scripts/test_predictions_card_submission.php
 
-      - name: Run Predictions Phase 5 tests
-        run: php scripts/test_predictions_phase5.php
+      - name: Test Predictions results and leaderboard
+        run: php scripts/test_predictions_results.php
 
-      - name: Run Predictions Phase 6 integration tests
-        run: php scripts/test_predictions_phase6.php
+      - name: Test Predictions deployment integration
+        run: php scripts/test_predictions_deployment.php

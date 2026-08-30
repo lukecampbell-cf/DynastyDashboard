@@ -267,11 +267,11 @@ Run the complete offline suite before deployment:
 
 ```bash
 python -m unittest discover -p "test_*.py" -v
-php scripts/test_predictions_phase1.php
-php scripts/test_predictions_phase2.php
-php scripts/test_predictions_phase4.php
-php scripts/test_predictions_phase5.php
-php scripts/test_predictions_phase6.php
+php scripts/test_predictions_access_and_roster.php
+php scripts/test_predictions_projection_engine.php
+php scripts/test_predictions_card_submission.php
+php scripts/test_predictions_results.php
+php scripts/test_predictions_deployment.php
 ```
 
 Verify `/dashboard/`, `/dashboard/predictions/`, and navigation in both
