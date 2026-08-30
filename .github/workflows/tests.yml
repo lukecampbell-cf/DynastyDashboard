@@ -25,6 +25,8 @@ jobs:
         run: pyflakes dynasty_dashboard tests scripts/scraper_smoke_test.py
 
       - name: Run tests
+        env:
+          PYTHONWARNINGS: error::ResourceWarning
         run: python -m unittest discover -p "test_*.py" -v
 
       - name: Test Predictions access and roster handling
