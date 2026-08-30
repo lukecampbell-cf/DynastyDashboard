@@ -20,14 +20,20 @@ import httpx
 import json
 import logging
 import os
-import re
-import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from .common import USER_AGENT, is_timestamp_stale, normalise_name, write_json_atomic
+from .common import is_timestamp_stale, normalise_name, write_json_atomic
 from .paths import PROJECT_ROOT
 from .schemas import LeagueRecord, PlayerCacheEntry, ResolvedPlayer, SleeperOutput
+from .sleeper_values import (
+    derive_trade_value,
+    determine_ranking_format,
+    determine_value_format,
+    extract_draft_year,
+    fetch_fantasypros_rankings,
+    index_by_fp_id,
+)
 from . import player_directory_agent
 from . import trade_value_agent
 
@@ -35,17 +41,6 @@ log = logging.getLogger(__name__)
 
 SLEEPER_BASE = "https://api.sleeper.app/v1"
 
-FANTASYPROS_HEADERS = {"User-Agent": USER_AGENT}
-
-# FantasyPros doesn't split dynasty rankings by scoring format — dynasty value
-# is dominated by long-term outlook, so a single blended dynasty page covers
-# all dynasty leagues regardless of PPR/half-PPR/standard scoring.
-FANTASYPROS_RANKING_URLS = {
-    "dynasty": "https://www.fantasypros.com/nfl/rankings/dynasty-overall.php",
-    "ppr": "https://www.fantasypros.com/nfl/rankings/ppr-cheatsheets.php",
-    "half_ppr": "https://www.fantasypros.com/nfl/rankings/half-point-ppr-cheatsheets.php",
-    "standard": "https://www.fantasypros.com/nfl/rankings/consensus-cheatsheets.php",
-}
 
 # Per-player bio/id cache: Sleeper<->FantasyPros id crosswalk plus bio
 # details (name, position, team, age, years_exp, college, draft_year).
@@ -194,144 +189,6 @@ def get_nfl_players() -> dict:
         return {}
 
 
-def determine_ranking_format(league_settings: dict, scoring_settings: dict) -> str:
-    """
-    Decide which FantasyPros ranking set applies to a league.
-    Sleeper: settings.type == 2 means dynasty; scoring_settings.rec is the
-    receptions-per-catch value (1 = PPR, 0.5 = half-PPR, 0/absent = standard).
-    """
-    if (league_settings or {}).get("type") == 2:
-        return "dynasty"
-
-    rec = (scoring_settings or {}).get("rec", 0) or 0
-    if rec >= 1:
-        return "ppr"
-    if rec >= 0.5:
-        return "half_ppr"
-    return "standard"
-
-
-def fetch_fantasypros_rankings(format_key: str) -> dict:
-    """
-    Fetch FantasyPros consensus rankings for the given format
-    ("dynasty", "ppr", "half_ppr", or "standard").
-    Returns a dict keyed by normalised player name, cached locally for 24 hours.
-    """
-    url = FANTASYPROS_RANKING_URLS.get(format_key)
-    if not url:
-        log.warning(f"Unknown FantasyPros ranking format: {format_key}")
-        return {}
-
-    cache_path = f"/tmp/fantasypros_rankings_{format_key}.json"
-    if os.path.exists(cache_path) and time.time() - os.path.getmtime(cache_path) < 86400:
-        log.info(f"Using cached FantasyPros {format_key} rankings")
-        with open(cache_path) as f:
-            return json.load(f)
-
-    log.info(f"Fetching FantasyPros {format_key} rankings: {url}")
-    try:
-        r = httpx.get(url, headers=FANTASYPROS_HEADERS, timeout=20, follow_redirects=True)
-        r.raise_for_status()
-        match = re.search(r"var ecrData\s*=\s*(\{.*?\});", r.text, re.DOTALL)
-        if not match:
-            log.warning(f"Could not find ecrData on FantasyPros {format_key} rankings page")
-            return {}
-
-        data = json.loads(match.group(1))
-        rankings = {}
-        for p in data.get("players", []):
-            key = normalise_name(p.get("player_name", ""))
-            if not key:
-                continue
-            rankings[key] = {
-                "fp_player_id": p.get("player_id"),
-                "fp_rank": p.get("rank_ecr"),
-                "fp_pos_rank": p.get("pos_rank"),
-                "fp_tier": p.get("tier"),
-                "fp_page_url": p.get("player_page_url"),
-            }
-
-        with open(cache_path, "w") as f:
-            json.dump(rankings, f)
-        log.info(f"Cached {len(rankings)} FantasyPros {format_key} rankings")
-        return rankings
-    except Exception as e:
-        log.error(f"Failed to fetch FantasyPros {format_key} rankings: {e}")
-        return {}
-
-
-# Fallback-only trade value tiers, derived from FantasyPros consensus rank.
-# Dynasty leagues now get a market-calibrated trade value from RosterAudit
-# instead (see trade_value_agent.py + derive_trade_value() below); this
-# FantasyPros-rank bucketing only kicks in for redraft leagues (RosterAudit's
-# values are dynasty/startup-only) or for a player RosterAudit hasn't ranked
-# yet. FantasyPros does not publish an official trade value chart, so this
-# buckets rank into 4-player slices (early/mid/late thirds of a round, sized
-# for a 12-team startup draft) — a common industry convention, not a
-# scraped/authoritative value.
-TRADE_VALUE_TIERS = [
-    (4, "Elite / Early 1st"),
-    (8, "Mid 1st"),
-    (12, "Late 1st"),
-    (16, "Early 2nd"),
-    (20, "Mid 2nd"),
-    (24, "Late 2nd"),
-    (28, "Early 3rd"),
-    (32, "Mid 3rd"),
-    (36, "Late 3rd"),
-    (48, "4th Round Value"),
-    (60, "5th Round Value"),
-    (100, "Bench Depth"),
-]
-
-
-def trade_value_tier(rank: Optional[int]) -> Optional[str]:
-    """Map a FantasyPros consensus rank to a human-readable trade value tier."""
-    if rank is None:
-        return None
-    for threshold, label in TRADE_VALUE_TIERS:
-        if rank <= threshold:
-            return label
-    return "Waiver / Deep Stash"
-
-
-def determine_value_format(roster_positions: Optional[list]) -> str:
-    """
-    Decide whether a league's RosterAudit trade values should be Superflex
-    or 1QB — a SUPER_FLEX slot, or a second dedicated QB slot, means teams
-    can start (and therefore pay up for) more than one quarterback.
-    """
-    positions = roster_positions or []
-    if "SUPER_FLEX" in positions:
-        return "sf"
-    if positions.count("QB") >= 2:
-        return "sf"
-    return "1qb"
-
-
-def derive_trade_value(
-    sleeper_player_id,
-    ranking_format: str,
-    ra_players: dict,
-    ra_tier_chart: list,
-    fp_rank: Optional[int],
-) -> Optional[str]:
-    """
-    Dynasty leagues: RosterAudit market value, bucketed into the same
-    "Early 1st / Mid 2nd / ..." tiers RosterAudit itself uses for future
-    draft picks (see trade_value_agent.py). Falls back to the FantasyPros-
-    rank heuristic when the player isn't in RosterAudit's ranked set yet
-    (very deep stashes) or the league isn't dynasty — RosterAudit values are
-    startup/dynasty market values built around draft-pick capital, which
-    doesn't map onto redraft leagues.
-    """
-    if ranking_format == "dynasty":
-        ra_entry = ra_players.get(str(sleeper_player_id))
-        if ra_entry and ra_entry.get("value") is not None:
-            return trade_value_agent.trade_value_label(ra_entry["value"], ra_tier_chart)
-    return trade_value_tier(fp_rank)
-
-
 DESIGNATION_POSITIONS = {"QB", "RB", "WR", "TE", "K", "DEF"}
 
 
@@ -395,35 +252,6 @@ def save_player_cache(player_cache: dict[str, PlayerCacheEntry]) -> None:
 # alongside is_stale()'s mtime-based sibling, so it's not reimplemented here.
 is_stale = is_timestamp_stale
 
-
-def extract_draft_year(sleeper_player: dict) -> Optional[int]:
-    """
-    Best-effort accurate NFL draft year for a player, read from Sleeper's own
-    metadata.rookie_year field (the season they entered the league).
-
-    Deliberately not inferred from years_exp: years_exp counts completed
-    seasons and is relative to whatever moment the player DB snapshot was
-    taken, so "years_exp == 0" means something different in Week 1 of a
-    rookie's debut season than it does in the following offseason. rookie_year
-    is a fixed fact and gives an accurate "Year Drafted 2025" vs "2026" read
-    regardless of when in the season this runs.
-    """
-    rookie_year = (sleeper_player.get("metadata") or {}).get("rookie_year")
-    if not rookie_year:
-        return None
-    try:
-        return int(rookie_year)
-    except (TypeError, ValueError):
-        return None
-
-
-def index_by_fp_id(rankings: dict) -> dict:
-    """Re-key a name-keyed FantasyPros rankings dict by fp_player_id for O(1) id lookups."""
-    return {
-        entry["fp_player_id"]: entry
-        for entry in rankings.values()
-        if entry.get("fp_player_id") is not None
-    }
 
 
 def get_matchups(league_id: str, week: int) -> list[dict]:

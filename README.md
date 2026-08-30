@@ -54,6 +54,8 @@ python -m dynasty_dashboard --debug    # also dumps intermediate JSON to debug/
 Fetches your leagues and rosters from the public Sleeper API (no auth required) for
 the username in `SLEEPER_USERNAME` (`.env`). The season is resolved dynamically from
 Sleeper's `/state/nfl` endpoint, so nothing needs to be hardcoded year to year.
+Format selection, FantasyPros retrieval, and trade-value mapping live in
+`dynasty_dashboard/sleeper_values.py`; the agent remains the orchestration and roster-assembly facade.
 
 For each league, it also:
 
@@ -300,6 +302,9 @@ general-knowledge hedge.
 ## 3. News Agent (`dynasty_dashboard/news_agent.py`)
 
 Pulls player news from six sources and cross-references them by name:
+The concurrency, aggregation, and roster enrichment stay in `news_agent.py`; source-specific
+HTTP and HTML adapters live in `news_sources.py`, where only expected transport, JSON, and
+parsing failures are degraded to per-source health errors.
 
 | Source | What it covers |
 |---|---|
