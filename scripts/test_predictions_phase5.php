@@ -18,6 +18,8 @@ $insert->execute(['m2','p2','Loser','RB','UNDER',8.5,8,0.5,8.5,'v0','LOSS',9]);
 $card = predictions_card_with_picks($pdo, 1, 'u1');
 phase5_expect($card !== null && count($card['picks']) === 2, 'Results did not load card picks.');
 phase5_expect(predictions_card_with_picks($pdo, 1, 'other') === null, 'User could read another user card.');
+phase5_expect(predictions_card_with_picks($pdo, 0, 'u1') === null, 'Zero card ID unexpectedly resolved.');
+phase5_expect(predictions_card_with_picks($pdo, -1, 'u1') === null, 'Negative card ID unexpectedly resolved.');
 $history = predictions_user_history($pdo, 'u1');
 phase5_expect(count($history) === 1 && (int) $history[0]['wins'] === 1, 'History totals are incorrect.');
 $leaders = predictions_leaderboard($pdo);

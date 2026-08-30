@@ -5,22 +5,14 @@ between the raw enriched player data and the reasoning prompt/output, and
 between successive pipeline runs. Two independent concerns live here:
 
   - summarise_injury_evidence(): a provenance snapshot of what's actually
-    known about a player's injury/status before Claude ever sees it. The
-    prompt is built from this (reasoning_agent.build_player_block()), and
-    validation.py's guardrails check Claude's output against it afterward,
-    so an uncertain source can never be silently upgraded into a more
-    specific claim than the evidence actually supports (e.g. a plain "knee
-    injury" becoming "ACL injury" with nothing behind it).
+    known about a player's injury/status. Dashboard cards use this to show
+    how strongly an injury claim is supported without inferring details.
 
   - classify_change_status(): compares a player's current signal fingerprint
-    (reasoning_agent.compute_signal_fingerprint()) against the fingerprint
-    stored from their *previous* analysis, to answer "what's actually new
-    since last time" without any additional LLM calls — reasoning_agent.py
-    already computes and caches that fingerprint for its own quiet-reuse
-    logic, so this reuses the same data rather than collecting anything new.
+    against the fingerprint stored from their *previous* analysis, to answer
+    "what's actually new since last time" without any additional LLM calls.
 
-Deliberately independent of reasoning_agent.py (no import either direction)
-so these stay pure, easily unit-testable functions — callers pass in
+These stay pure, easily unit-testable functions — callers pass in
 whatever plain values they already have rather than this module reaching
 into EnrichedPlayer/ReasoningResult shapes itself.
 """
@@ -31,11 +23,8 @@ from typing import Optional
 from news_agent import INJURY_KEYWORDS
 from schemas import EnrichedPlayer, NewsItem
 
-# Specific structural/medical terms Claude is only allowed to use in its
-# summary/notes if one of them is already present verbatim in the player's
-# own evidence (structured injury_body_part or a news item's text) — the
-# guardrail in validation.py checks generated text against this same list,
-# so a source saying "knee injury" can never come back out as "ACL injury."
+# Specific structural/medical terms that are explicitly present in the
+# player's own evidence (structured injury_body_part or a news item's text).
 SPECIFIC_INJURY_TERMS = [
     "acl", "mcl", "pcl", "achilles", "meniscus", "labrum", "lisfranc",
     "torn", "rupture", "ruptured", "fracture", "fractured",
@@ -101,8 +90,7 @@ def summarise_injury_evidence(player: EnrichedPlayer) -> dict:
       confidence: PROVENANCE_CONFIDENCE[provenance].
 
       specific_terms_supported: which SPECIFIC_INJURY_TERMS actually appear
-        in the evidence — the only terms a downstream consumer (Claude, or
-        validation.py's guardrail) is allowed to state as fact.
+        in the evidence.
     """
     structured_status = player.get("injury_status") or player.get("news_injury_status")
     body_part = player.get("injury_body_part") or None

@@ -9,10 +9,8 @@ import os
 import re
 import sqlite3
 from pathlib import Path
-from typing import Any
 
 SCORE_FILE_RE = re.compile(r"^actual_scores_(\d{4})_(\d{2})\.json$")
-TERMINAL_RESULTS = {"WIN", "LOSS", "PUSH", "VOID"}
 
 
 def load_actual_scores(path: Path) -> tuple[int, int, dict[str, float | None]]:
