@@ -432,12 +432,15 @@ and doesn't call any API. It reads `player_directory.json` (every fantasy-releva
 player + trade value, see step 1's player-directory section above) and `trade_values.json`
 (for its pick tier chart) directly, server-side, on each page load, and lets you build a
 two-sided trade (any player, plus future picks) to get a fairness verdict, computed
-client-side in vanilla JS from the embedded value data. Pick values come from the same
+client-side in vanilla JS from a JSON bootstrap payload. Data loading lives in
+`web/includes/trade_calculator_data.php`, presentation in
+`web/assets/trade-calculator.css`, and behaviour in `web/assets/trade-calculator.js`.
+Pick values come from the same
 RosterAudit tier chart `dynasty_dashboard/trade_value_agent.py` already builds — a pick you add is priced
 at its tier's `min_value` for whichever format (Superflex / 1QB) is selected.
 
 Verdict is `min(sideA, sideB) / max(sideA, sideB)`, bucketed into Yes / Close Yes / Close
-No / No / Outrageously Unbalanced (thresholds are constants at the top of the PHP file).
+No / No / Outrageously Unbalanced (thresholds are constants in the data include).
 A trade below the "No" threshold surfaces a `mailto:` link to email a summary to the
 Bullshit Trade Association — it only opens the visitor's own mail client with a
 pre-filled draft; nothing sends automatically.
@@ -451,10 +454,11 @@ for deployment.
 must exactly match `sf`/`1qb` or it falls back to `sf`, and `player` is only honoured if
 it's an actual existing key in that format's already-loaded player pool — an unknown,
 malformed, or injection-shaped id is silently dropped, never echoed back raw. The
-validated result is embedded client-side the same way `PLAYERS`/`PICK_TIERS` already are
+validated result is embedded in the same JSON bootstrap as the player and pick data
 (`JSON_HEX_*`-flagged `json_encode()`), and preselection reuses the page's existing
 `addAsset()` — no new client-side trust surface. Covered by
-`scripts/test_trade_calculator_validation.php` (plain `php` CLI assertions — this repo has
+`scripts/test_trade_calculator_validation.php` and `scripts/test_trade_calculator_rendering.php`
+(plain `php` CLI assertions — this repo has
 no PHP test framework, matching `scripts/scraper_smoke_test.py`'s own "run manually, not
 part of the unit suite" convention on the Python side).
 

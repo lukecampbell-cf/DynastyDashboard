@@ -135,6 +135,8 @@ dynasty-dashboard/
 ├── web/
 │   ├── trade_calculator.php
 │   ├── trade_calculator_lib.php
+│   ├── assets/trade-calculator.{css,js}
+│   ├── includes/trade_calculator_data.php
 │   └── predictions/      ← deployable Predictions PHP application
 ├── player_cache.json     ← per-player bio + contract cache (self-building, safe to delete)
 ├── trade_values.json     ← RosterAudit dynasty trade values, sf & 1qb refreshed independently (weekly)
@@ -173,18 +175,26 @@ on your VPS you'll need to install `php-fpm` and add an nginx block for it
 (the exact steps depend on your distro/PHP version — see your OS's php-fpm
 package docs).
 
-**Deploy both PHP files together from `web/`.** `trade_calculator.php` does
-`require __DIR__ . '/trade_calculator_lib.php'`, so the two must land in the
-same directory. Copying only `trade_calculator.php` gives you a PHP fatal
-(500 or blank page). Copying only the new `trade_calculator.php` over a
-deployment that predates the lib file does the same. Re-copy the pair
-whenever either one changes. The dashboard's "Explore Trade" deep link
+**Deploy the calculator directory structure together from `web/`.** The entry point
+requires `includes/trade_calculator_data.php`, which requires the sibling
+`trade_calculator_lib.php`; the browser loads its CSS and JavaScript from `assets/`.
+Copying only the entry point gives a fatal error or an unstyled, non-interactive page.
+Re-copy all components whenever one changes. The dashboard's "Explore Trade" deep link
 (`trade_calculator.php?player=<id>`) is resolved server-side in the lib, so a
 stale `trade_calculator.php` ignores the `?player=` id and loads an empty
 Side A.
 
-**Simplest deployment:** copy `web/trade_calculator.php` and
-`web/trade_calculator_lib.php` into the public dashboard directory. Set
+**Simplest deployment:** preserve these paths in the public dashboard directory:
+
+```text
+trade_calculator.php
+trade_calculator_lib.php
+includes/trade_calculator_data.php
+assets/trade-calculator.css
+assets/trade-calculator.js
+```
+
+Set
 `DASHBOARD_DATA_DIR` to the private/project data directory containing
 `player_directory.json` and `trade_values.json`. Add an nginx `location` block
 pointing at that directory (same `alias` pattern as the dashboard block in
@@ -220,6 +230,9 @@ web root contains `index.html`, the trade calculator, and the contents of
 │   ├── index.html
 │   ├── trade_calculator.php
 │   ├── trade_calculator_lib.php
+│   ├── includes/trade_calculator_data.php
+│   ├── assets/trade-calculator.css
+│   ├── assets/trade-calculator.js
 │   └── predictions/
 └── private/
     ├── dynasty-dashboard-data/

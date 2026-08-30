@@ -29,6 +29,11 @@ jobs:
           PYTHONWARNINGS: error::ResourceWarning
         run: python -m unittest discover -p "test_*.py" -v
 
+      - name: Test trade calculator validation and rendering
+        run: |
+          php scripts/test_trade_calculator_validation.php
+          php scripts/test_trade_calculator_rendering.php
+
       - name: Test Predictions access and roster handling
         run: php scripts/test_predictions_access_and_roster.php
 
