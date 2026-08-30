@@ -23,3 +23,15 @@ jobs:
 
       - name: Run Predictions Phase 1 tests
         run: php scripts/test_predictions_phase1.php
+
+      - name: Run Predictions Phase 2 tests
+        run: php scripts/test_predictions_phase2.php
+
+      - name: Run Predictions Phase 4 tests
+        run: php scripts/test_predictions_phase4.php
+
+      - name: Run Predictions Phase 5 tests
+        run: php scripts/test_predictions_phase5.php
+
+      - name: Run Predictions Phase 6 integration tests
+        run: php scripts/test_predictions_phase6.php

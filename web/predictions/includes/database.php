@@ -5,6 +5,10 @@ declare(strict_types=1);
 function predictions_database(?string $path = null): PDO
 {
     $databasePath = $path ?? predictions_database_path();
+    $databaseDirectory = dirname($databasePath);
+    if (!is_dir($databaseDirectory) || !is_writable($databaseDirectory)) {
+        throw new RuntimeException('Predictions database directory is not writable.');
+    }
     $pdo = new PDO('sqlite:' . $databasePath, null, null, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
@@ -12,7 +16,11 @@ function predictions_database(?string $path = null): PDO
     $pdo->exec('PRAGMA foreign_keys = ON');
     $pdo->exec('PRAGMA journal_mode = WAL');
     predictions_initialise_database($pdo);
-    @chmod($databasePath, 0600);
+    foreach ([$databasePath, $databasePath . '-wal', $databasePath . '-shm'] as $privatePath) {
+        if (is_file($privatePath)) {
+            @chmod($privatePath, 0600);
+        }
+    }
     return $pdo;
 }
 

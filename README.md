@@ -211,6 +211,14 @@ For hosts where PHP-FPM does not receive `PREDICTIONS_DB_PATH`, copy
 and set `PREDICTIONS_DB_PATH_OVERRIDE` to a private directory writable by the
 PHP site user. The local file is ignored by Git.
 
+Predictions is deployed as an optional sibling application at
+`<dashboard-web-root>/predictions/`. The generated dashboard contains only a
+normal link to that directory: dashboard rendering neither loads Predictions
+PHP nor opens its SQLite database, so a Predictions configuration, database,
+or upstream failure cannot stop the existing static dashboard from rendering.
+See [SETUP.md's Predictions deployment section](SETUP.md#fantasy-predictions-deployment)
+for the public/private layout, permissions, configuration, and checks.
+
 ### `player_directory.json` — weekly full player + trade value directory
 
 Built by `player_directory_agent.py`, called from within `sleeper_agent.run()` right

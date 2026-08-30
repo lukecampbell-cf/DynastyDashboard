@@ -484,6 +484,7 @@ def render_html(reasoning_data: ReasoningOutput) -> str:
       <div class="meta-pill"><strong>{total_leagues}</strong> Leagues</div>
       <div class="meta-pill"><strong>{total_players}</strong> Players tracked</div>
       <div class="meta-pill"><strong>{total_injured}</strong> Injury flags</div>
+      <a class="calc-link" href="predictions/">Predictions &rarr;</a>
       <a class="calc-link" href="trade_calculator.php">Trade Calculator &rarr;</a>
       <div class="updated-tag">Updated {updated_at}</div>
     </div>

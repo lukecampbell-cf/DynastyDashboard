@@ -81,7 +81,7 @@ $season = (string) ($_SESSION['predictions_season'] ?? '');
 <header class="site-header">
   <div class="header-inner">
     <div class="header-brand"><div class="brand-title">Dynasty <span>HQ</span></div><div class="brand-sub">Fantasy Predictions</div></div>
-    <div class="header-meta"><span class="meta-pill"><?php echo predictions_escape($identity['display_name']); ?> · <?php echo predictions_escape($season); ?></span><a class="nav-link" href="index.php">Change user</a><a class="nav-link" href="../dashboard/">Dashboard</a></div>
+    <div class="header-meta"><span class="meta-pill"><?php echo predictions_escape($identity['display_name']); ?> · <?php echo predictions_escape($season); ?></span><a class="nav-link" href="index.php">Change user</a><a class="nav-link" href="../">Dashboard</a></div>
   </div>
 </header>
 <main class="main">
