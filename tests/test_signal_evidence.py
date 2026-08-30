@@ -10,7 +10,7 @@ Or via unittest: ./venv/bin/python -m unittest test_signal_evidence -v
 
 import unittest
 
-from signal_evidence import classify_change_status, summarise_injury_evidence
+from dynasty_dashboard.signal_evidence import classify_change_status, summarise_injury_evidence
 
 
 def make_player(**overrides) -> dict:

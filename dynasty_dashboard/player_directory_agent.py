@@ -37,15 +37,15 @@ slowly enough that a week-old snapshot is fine for a trade calculator.
 
 import json
 import logging
-from pathlib import Path
 from typing import Optional
 
-import trade_value_agent
-from common import is_stale, normalise_name, write_json_atomic
+from . import trade_value_agent
+from .common import is_stale, normalise_name, write_json_atomic
+from .paths import PROJECT_ROOT
 
 log = logging.getLogger(__name__)
 
-PLAYER_DIRECTORY_PATH = Path(__file__).resolve().parent / "player_directory.json"
+PLAYER_DIRECTORY_PATH = PROJECT_ROOT / "player_directory.json"
 DIRECTORY_FRESHNESS_SECONDS = 7 * 86400  # once a week, same cadence as RosterAudit
 
 # Only fantasy-relevant positions, and only players actually on an NFL
@@ -220,7 +220,7 @@ def run(all_players: dict, rosteraudit_data: dict, force: bool = False) -> dict:
             log.info(f"Using cached player directory ({len(cached)} players)")
             return cached
 
-    from sleeper_agent import fetch_fantasypros_rankings
+    from .sleeper_agent import fetch_fantasypros_rankings
 
     log.info("Building player directory from Sleeper + RosterAudit + FantasyPros data...")
     # Dynasty rankings are scoring-format-agnostic (see sleeper_agent.py) —

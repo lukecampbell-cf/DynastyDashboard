@@ -21,8 +21,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import sleeper_agent
-import contract_agent
+from dynasty_dashboard import sleeper_agent
+from dynasty_dashboard import contract_agent
 
 
 def iso(dt: datetime) -> str:

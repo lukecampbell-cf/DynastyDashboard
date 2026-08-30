@@ -8,10 +8,11 @@ Runs the full Dynasty Dashboard pipeline:
   5. Dashboard Agent — render and publish HTML
 
 Usage:
-  python orchestrator.py
-  python orchestrator.py --season 2025
-  python orchestrator.py --dry-run   (renders HTML to /tmp instead of web root)
+  python -m dynasty_dashboard
+  python -m dynasty_dashboard --dry-run   (renders HTML to /tmp instead of web root)
 """
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -20,28 +21,29 @@ import os
 import sys
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
 from dotenv import load_dotenv
 
+from .paths import PROJECT_ROOT
+
 # Load .env from same directory as this script
-env_path = Path(__file__).parent / ".env"
+env_path = PROJECT_ROOT / ".env"
 load_dotenv(dotenv_path=env_path)
 
-import sleeper_agent
-import contract_agent
-import news_agent
-import league_reasoning_agent
-import dashboard_agent
-import health_agent
-from schemas import NewsOutput, PipelineResult, ReasoningOutput, SleeperOutput, StageResult
+from . import sleeper_agent
+from . import contract_agent
+from . import news_agent
+from . import league_reasoning_agent
+from . import dashboard_agent
+from . import health_agent
+from .schemas import NewsOutput, PipelineResult, ReasoningOutput, SleeperOutput, StageResult
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(Path(__file__).parent / "pipeline.log", mode="a"),
+        logging.FileHandler(PROJECT_ROOT / "pipeline.log", mode="a"),
     ]
 )
 log = logging.getLogger("orchestrator")
@@ -250,7 +252,7 @@ def run_pipeline(dry_run: bool = False, debug: bool = False) -> PipelineResult:
 
 def save_pipeline_data(sleeper_data: SleeperOutput, news_data: NewsOutput, reasoning_data: ReasoningOutput):
     """Save intermediate pipeline data for debugging."""
-    debug_dir = Path(__file__).parent / "debug"
+    debug_dir = PROJECT_ROOT / "debug"
     debug_dir.mkdir(exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     for name, data in [
@@ -264,14 +266,18 @@ def save_pipeline_data(sleeper_data: SleeperOutput, news_data: NewsOutput, reaso
     log.info(f"Debug data saved to {debug_dir}/")
 
 
-if __name__ == "__main__":
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Dynasty Dashboard Pipeline")
     parser.add_argument("--dry-run", action="store_true", help="Write to /tmp instead of web root")
     parser.add_argument("--debug", action="store_true", help="Save intermediate pipeline data")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if not check_environment(dry_run=args.dry_run):
-        sys.exit(1)
+        return 1
 
     result = run_pipeline(dry_run=args.dry_run, debug=args.debug)
-    sys.exit(0 if result["success"] else 1)
+    return 0 if result["success"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

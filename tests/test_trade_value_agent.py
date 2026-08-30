@@ -15,7 +15,7 @@ Or via unittest: ./venv/bin/python -m unittest test_trade_value_agent -v
 import unittest
 from unittest.mock import patch
 
-import trade_value_agent as tva
+from dynasty_dashboard import trade_value_agent as tva
 
 
 def make_players(n: int, prefix: str = "p") -> dict:

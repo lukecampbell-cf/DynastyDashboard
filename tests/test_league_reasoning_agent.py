@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import league_reasoning_agent as lra
+from dynasty_dashboard import league_reasoning_agent as lra
 
 
 def player(pid="1", news=False):

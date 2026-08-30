@@ -33,7 +33,7 @@ $jsonPath = $root . '/private/data/private.json';
 predictions_write_json_atomic($jsonPath, ['ok' => true]);
 phase6_expect((fileperms($jsonPath) & 0777) === 0600, 'Private JSON is not mode 0600.');
 
-$dashboardSource = file_get_contents($repository . '/dashboard_agent.py');
+$dashboardSource = file_get_contents($repository . '/dynasty_dashboard/dashboard_agent.py');
 phase6_expect($dashboardSource !== false && str_contains($dashboardSource, 'href="predictions/"'), 'Dashboard navigation does not expose Predictions.');
 phase6_expect(!str_contains($dashboardSource, "web/predictions/includes/bootstrap.php"), 'Dashboard rendering is coupled to Predictions bootstrap.');
 

@@ -16,8 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-import common
-import orchestrator
+from dynasty_dashboard import common
+from dynasty_dashboard import orchestrator
 
 
 def make_sleeper_data(trade_values_degraded=None) -> dict:

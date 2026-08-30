@@ -1,0 +1,2 @@
+"""Dynasty Dashboard application package."""
+

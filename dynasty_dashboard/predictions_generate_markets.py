@@ -18,11 +18,12 @@ from urllib.parse import quote
 
 import httpx
 
-from common import write_json_atomic
-from predictions_market_agent import generate_markets
+from .common import write_json_atomic
+from .paths import PROJECT_ROOT
+from .predictions_market_agent import generate_markets
 
 log = logging.getLogger(__name__)
-ROOT = Path(__file__).resolve().parent
+ROOT = PROJECT_ROOT
 LEAGUE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 USERNAME_RE = re.compile(r"^.{1,50}$")
 

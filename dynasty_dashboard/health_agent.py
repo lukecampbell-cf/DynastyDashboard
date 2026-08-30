@@ -19,15 +19,14 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
-from common import write_json_atomic
-from schemas import CacheStatus, HealthRecord, StepStatus
+from .common import write_json_atomic
+from .paths import PROJECT_ROOT
+from .schemas import CacheStatus, HealthRecord, StepStatus
 
 log = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parent
 HEALTH_PATH = PROJECT_ROOT / "health.json"
 
 # (display name, path, freshness threshold in seconds) for every cache this
@@ -124,7 +123,7 @@ def record_run(steps: dict[str, StepStatus], pipeline_success: bool) -> HealthRe
 
 
 def print_summary(health: Optional[dict] = None) -> None:
-    """Human-readable summary — `python health_agent.py`, or called from orchestrator.py after a run."""
+    """Human-readable summary — `python -m dynasty_dashboard.health_agent`, or called from orchestrator.py after a run."""
     health = health or load_health()
     if not health:
         print("No health data yet — run orchestrator.py first.")

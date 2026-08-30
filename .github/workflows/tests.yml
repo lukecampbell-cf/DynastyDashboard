@@ -22,7 +22,7 @@ jobs:
         run: mypy .
 
       - name: Run pyflakes
-        run: pyflakes *.py
+        run: pyflakes dynasty_dashboard tests scripts/scraper_smoke_test.py
 
       - name: Run tests
         run: python -m unittest discover -p "test_*.py" -v

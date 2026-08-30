@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import predictions_generate_markets as pgm
-import predictions_market_agent as pma
+from dynasty_dashboard import predictions_generate_markets as pgm
+from dynasty_dashboard import predictions_market_agent as pma
 
 
 class FakeClient:
@@ -53,10 +53,10 @@ class PredictionsGenerateMarketsTests(unittest.TestCase):
         self.assertEqual(client.calls, [])
 
     def test_php_binary_override_and_missing_php_error(self):
-        with patch("predictions_generate_markets.shutil.which", return_value=None):
+        with patch("dynasty_dashboard.predictions_generate_markets.shutil.which", return_value=None):
             with self.assertRaisesRegex(pgm.GenerationError, "Configured PHP CLI is not executable"):
                 pgm.resolve_php_binary("/definitely/missing/php")
-        with patch("predictions_generate_markets.shutil.which", return_value="/usr/local/bin/php"):
+        with patch("dynasty_dashboard.predictions_generate_markets.shutil.which", return_value="/usr/local/bin/php"):
             self.assertEqual(pgm.resolve_php_binary(), "/usr/local/bin/php")
 
     def test_rejects_unowned_league_and_finds_owned_roster(self):

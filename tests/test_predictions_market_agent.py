@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import predictions_market_agent as pma
+from dynasty_dashboard import predictions_market_agent as pma
 
 
 def player(player_id: str, projection: float, input_hash: str, name: str | None = None) -> dict:

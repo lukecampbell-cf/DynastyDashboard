@@ -15,7 +15,7 @@ Or via unittest: ./venv/bin/python -m unittest test_dashboard_agent -v
 import unittest
 from unittest.mock import patch
 
-import dashboard_agent as da
+from dynasty_dashboard import dashboard_agent as da
 
 PAYLOAD = "<script>alert('xss')</script>"
 

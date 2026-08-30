@@ -23,13 +23,13 @@ import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Optional
 
-from common import USER_AGENT, is_timestamp_stale, normalise_name, write_json_atomic
-from schemas import LeagueRecord, PlayerCacheEntry, ResolvedPlayer, SleeperOutput
-import player_directory_agent
-import trade_value_agent
+from .common import USER_AGENT, is_timestamp_stale, normalise_name, write_json_atomic
+from .paths import PROJECT_ROOT
+from .schemas import LeagueRecord, PlayerCacheEntry, ResolvedPlayer, SleeperOutput
+from . import player_directory_agent
+from . import trade_value_agent
 
 log = logging.getLogger(__name__)
 
@@ -54,12 +54,12 @@ FANTASYPROS_RANKING_URLS = {
 # roster flags) is re-read fresh from the API every run regardless. The
 # same file also holds a "contract" sub-object per player, populated and
 # refreshed independently by contract_agent.py on its own 28-day cadence.
-PLAYER_CACHE_PATH = Path(__file__).resolve().parent / "player_cache.json"
+PLAYER_CACHE_PATH = PROJECT_ROOT / "player_cache.json"
 
 # Legacy filename from before player details were cached — if present and
 # player_cache.json doesn't exist yet, its id crosswalk is migrated in
 # rather than thrown away (bio fields simply refresh on first run).
-LEGACY_PLAYER_ID_MAP_PATH = Path(__file__).resolve().parent / "player_id_map.json"
+LEGACY_PLAYER_ID_MAP_PATH = PROJECT_ROOT / "player_id_map.json"
 
 DETAILS_FRESHNESS = timedelta(days=14)
 

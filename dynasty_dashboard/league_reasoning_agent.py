@@ -12,9 +12,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from common import write_json_atomic
-from news_agent import match_to_roster
-from schemas import (
+from .common import write_json_atomic
+from .news_agent import match_to_roster
+from .paths import PROJECT_ROOT
+from .schemas import (
     AnalysedPlayer,
     LeagueResult,
     NewsOutput,
@@ -22,15 +23,14 @@ from schemas import (
     ReasoningResult,
     SleeperOutput,
 )
-from signal_evidence import classify_change_status
+from .signal_evidence import classify_change_status
 
 log = logging.getLogger(__name__)
 PROVIDER_DEFAULT = "openai"
 MODEL_DEFAULTS = {"anthropic": "claude-haiku-4-5", "openai": "gpt-5-mini"}
-ROOT = Path(__file__).resolve().parent
-PLAYER_STORE_PATH = ROOT / "player_store.json"
-SNAPSHOT_DIR = ROOT / "league_snapshots"
-ANALYSIS_CACHE_PATH = ROOT / "league_analysis_cache.json"
+PLAYER_STORE_PATH = PROJECT_ROOT / "player_store.json"
+SNAPSHOT_DIR = PROJECT_ROOT / "league_snapshots"
+ANALYSIS_CACHE_PATH = PROJECT_ROOT / "league_analysis_cache.json"
 MAX_ACTIONS = 8
 MAX_NEWS_EVENTS = 2
 MAX_OUTPUT_TOKENS = 900

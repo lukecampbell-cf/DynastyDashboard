@@ -19,8 +19,8 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from typing import Optional
 
-from common import USER_AGENT, normalise_name, parsebot_headers
-from schemas import EnrichedPlayer, NewsByPlayerEntry, NewsItem, NewsOutput, ResolvedPlayer, SourceStatus
+from .common import USER_AGENT, normalise_name, parsebot_headers
+from .schemas import EnrichedPlayer, NewsByPlayerEntry, NewsItem, NewsOutput, ResolvedPlayer, SourceStatus
 
 log = logging.getLogger(__name__)
 

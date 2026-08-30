@@ -10,6 +10,8 @@ import re
 import sqlite3
 from pathlib import Path
 
+from .paths import PROJECT_ROOT
+
 SCORE_FILE_RE = re.compile(r"^actual_scores_(\d{4})_(\d{2})\.json$")
 
 
@@ -102,7 +104,7 @@ def main() -> int:
     parser.add_argument("score_file", type=Path, help="Private actual_scores_YYYY_WW.json file")
     parser.add_argument("--database", type=Path, default=None, help="Predictions SQLite path")
     args = parser.parse_args()
-    data_dir = Path(os.environ.get("DASHBOARD_DATA_DIR", Path(__file__).parent))
+    data_dir = Path(os.environ.get("DASHBOARD_DATA_DIR", PROJECT_ROOT))
     database = args.database or Path(os.environ.get("PREDICTIONS_DB_PATH", data_dir / "predictions.sqlite"))
     try:
         counts = settle(database, args.score_file)

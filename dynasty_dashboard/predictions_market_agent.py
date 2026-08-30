@@ -17,11 +17,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from common import write_json_atomic
-from league_reasoning_agent import build_client, provider_model, provider_name
+from .common import write_json_atomic
+from .league_reasoning_agent import build_client, provider_model, provider_name
+from .paths import PROJECT_ROOT
 
 log = logging.getLogger(__name__)
-ROOT = Path(__file__).resolve().parent
+ROOT = PROJECT_ROOT
 CACHE_PATH = ROOT / "weekly_player_analysis.json"
 MARKETS_DIR = ROOT / "prediction_markets"
 ANALYSIS_VERSION = "predictions-context-v0"

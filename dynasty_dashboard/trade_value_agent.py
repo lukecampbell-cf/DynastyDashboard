@@ -31,10 +31,10 @@ import httpx
 import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional, Union
 
-from common import is_stale, parsebot_headers, write_json_atomic
+from .common import is_stale, parsebot_headers, write_json_atomic
+from .paths import PROJECT_ROOT
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ log = logging.getLogger(__name__)
 PARSEBOT_SCRAPER_ID = "34e9689f-ad14-419e-8aa6-e2604592b725"
 PARSEBOT_BASE_URL = f"https://api.parse.bot/scraper/{PARSEBOT_SCRAPER_ID}"
 
-TRADE_VALUES_PATH = Path(__file__).resolve().parent / "trade_values.json"
+TRADE_VALUES_PATH = PROJECT_ROOT / "trade_values.json"
 RA_FRESHNESS_SECONDS = 7 * 86400  # pull down once a week
 
 # get_dynasty_rankings caps per_page at 100 regardless of what's requested.

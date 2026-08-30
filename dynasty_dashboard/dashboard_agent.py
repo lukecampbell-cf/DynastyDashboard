@@ -13,14 +13,15 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
 
-from common import write_text_atomic
-from schemas import AnalysedPlayer, LeagueResult, ReasoningOutput
-from signal_evidence import summarise_injury_evidence
+from .common import write_text_atomic
+from .paths import PROJECT_ROOT
+from .schemas import AnalysedPlayer, LeagueResult, ReasoningOutput
+from .signal_evidence import summarise_injury_evidence
 
 log = logging.getLogger(__name__)
 
 OUTPUT_PATH = os.environ.get("DASHBOARD_OUTPUT_PATH", "")
-DASHBOARD_CSS_PATH = Path(__file__).resolve().parent / "dashboard.css"
+DASHBOARD_CSS_PATH = PROJECT_ROOT / "dashboard.css"
 
 
 def load_dashboard_css() -> str:

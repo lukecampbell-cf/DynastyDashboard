@@ -20,8 +20,8 @@ into EnrichedPlayer/ReasoningResult shapes itself.
 from datetime import datetime
 from typing import Optional
 
-from news_agent import INJURY_KEYWORDS
-from schemas import EnrichedPlayer, NewsItem
+from .news_agent import INJURY_KEYWORDS
+from .schemas import EnrichedPlayer, NewsItem
 
 # Specific structural/medical terms that are explicitly present in the
 # player's own evidence (structured injury_body_part or a news item's text).

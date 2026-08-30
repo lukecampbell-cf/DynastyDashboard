@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from prediction_settlement_agent import load_actual_scores, pick_result, settle
+from dynasty_dashboard.prediction_settlement_agent import load_actual_scores, pick_result, settle
 
 
 def make_database(path):
