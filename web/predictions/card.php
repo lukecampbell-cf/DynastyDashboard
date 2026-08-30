@@ -52,13 +52,13 @@ $submitted = isset($_GET['submitted']) && $_GET['submitted'] === '1';
   <link rel="stylesheet" href="assets/predictions.css"><script src="assets/predictions.js" defer></script>
 </head>
 <body>
-<header class="site-header"><div class="header-inner"><div class="header-brand"><div class="brand-title">Dynasty <span>HQ</span></div><div class="brand-sub">Fantasy Predictions</div></div><div class="header-meta"><span class="meta-pill"><?php echo predictions_escape($identity['display_name']); ?> · <?php echo predictions_escape($season); ?></span><a class="nav-link" href="league.php?league_id=<?php echo rawurlencode((string) $league['league_id']); ?>">Leagues</a><a class="nav-link" href="../dashboard/">Dashboard</a></div></div></header>
+<header class="site-header"><div class="header-inner"><div class="header-brand"><div class="brand-title">Dynasty <span>HQ</span></div><div class="brand-sub">Fantasy Predictions</div></div><div class="header-meta"><span class="meta-pill"><?php echo predictions_escape($identity['display_name']); ?> · <?php echo predictions_escape($season); ?></span><a class="nav-link" href="history.php">History</a><a class="nav-link" href="leaderboard.php">Leaderboard</a><a class="nav-link" href="league.php?league_id=<?php echo rawurlencode((string) $league['league_id']); ?>">Leagues</a><a class="nav-link" href="../dashboard/">Dashboard</a></div></div></header>
 <main class="main">
   <section class="hero compact"><p class="eyebrow">Week <?php echo $week; ?> · Half-PPR · <?php echo predictions_escape($league['name']); ?></p><h1>Dynasty HQ Fantasy Predictions</h1><p class="subtitle">Are you better than the projections?</p></section>
   <?php if ($submitted): ?><div class="alert alert-success" role="status">Card submitted. Your picks and lines are now locked in.</div><?php endif; ?>
   <?php if ($error !== null): ?><div class="alert alert-error" role="alert"><?php echo predictions_escape($error); ?><?php if ($marketsUnavailable): ?> Markets have not yet been prepared for the selected league/week. The private operator must run the documented market-generation command.<?php endif; ?></div><?php endif; ?>
   <?php if ($existingCard !== null): ?>
-    <section class="panel status-panel"><p class="eyebrow">Card locked</p><h2>Week <?php echo $week; ?> submitted</h2><p class="panel-copy">Submitted <?php echo predictions_escape($existingCard['submitted_at']); ?>. Submitted cards are immutable.</p></section>
+    <section class="panel status-panel"><p class="eyebrow">Card locked</p><h2>Week <?php echo $week; ?> submitted</h2><p class="panel-copy">Submitted <?php echo predictions_escape($existingCard['submitted_at']); ?>. Submitted cards are immutable.</p><a class="primary-button button-link" href="results.php?card_id=<?php echo (int) $existingCard['id']; ?>">View results</a></section>
     <section class="panel submitted-card-panel">
       <div class="section-heading"><div><p class="eyebrow">Your card</p><h2>Submitted picks</h2></div><span class="count-pill"><?php echo count($submittedPicks); ?> picks</span></div>
       <?php if ($submittedPicks === []): ?>

@@ -1,0 +1,8 @@
+<?php
+declare(strict_types=1);
+require __DIR__ . '/includes/bootstrap.php';
+$identity = $_SESSION['predictions_identity'] ?? null;
+if (!is_array($identity)) predictions_redirect('index.php');
+$cards = predictions_user_history(predictions_database(), (string) $identity['sleeper_user_id']);
+?>
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>History · Dynasty HQ Fantasy Predictions</title><link rel="stylesheet" href="assets/predictions.css"></head><body><header class="site-header"><div class="header-inner"><div class="header-brand"><div class="brand-title">Dynasty <span>HQ</span></div><div class="brand-sub">Fantasy Predictions</div></div><div class="header-meta"><a class="nav-link" href="leaderboard.php">Leaderboard</a><a class="nav-link" href="league.php">Leagues</a></div></div></header><main class="main"><section class="hero compact"><h1>Your history</h1><p class="subtitle">Every submitted Half-PPR card</p></section><section class="panel"><div class="history-list"><?php if ($cards === []): ?><p class="empty-state">No prediction cards yet.</p><?php endif; ?><?php foreach ($cards as $card): ?><a class="history-row" href="results.php?card_id=<?php echo (int) $card['id']; ?>"><span><strong>Week <?php echo (int) $card['week']; ?> · <?php echo predictions_escape($card['league_name']); ?></strong><small><?php echo predictions_escape($card['season']); ?> · <?php echo (int) $card['wins']; ?>/<?php echo (int) $card['settled_picks']; ?> correct</small></span><span><strong><?php echo (int) $card['total_points']; ?> pts</strong><small><?php echo predictions_escape($card['status']); ?></small></span></a><?php endforeach; ?></div></section></main></body></html>

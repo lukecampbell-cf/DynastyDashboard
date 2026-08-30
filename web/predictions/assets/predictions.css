@@ -89,6 +89,17 @@ input:focus { outline: 2px solid var(--bears-orange); outline-offset: 1px; }
 .submitted-choice.under { color: #fca5a5; background: rgba(239,68,68,.08); border: 1px solid var(--down-dim); }
 .submitted-detail, .submitted-result { color: var(--muted); font-size: 12px; margin-top: 12px; }
 .submitted-result strong { color: #fff; }
+.score-total { color: var(--bears-orange); font: 800 36px 'Barlow Condensed', sans-serif; }
+.result-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.result-row h3 { color: #fff; font-size: 22px; margin-top: 8px; }
+.result-badge { border: 1px solid var(--border); border-radius: 5px; padding: 4px 9px; text-transform: uppercase; }
+.result-win, .result-settled { color: #86efac; border-color: #166534; background: rgba(34,197,94,.12); }
+.result-loss { color: #fca5a5; border-color: var(--down-dim); background: rgba(239,68,68,.08); }
+.result-push, .result-void, .result-pending, .result-submitted { color: var(--muted); background: var(--navy-3); }
+.history-row { display: flex; justify-content: space-between; gap: 16px; color: var(--text); padding: 14px 0; border-bottom: 1px solid var(--border); text-decoration: none; }
+.history-row small { display: block; color: var(--muted); margin-top: 3px; }
+.leaderboard-row { display: grid; grid-template-columns: 2fr repeat(4, 1fr); gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.leaderboard-head { color: var(--muted); font-size: 11px; text-transform: uppercase; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 @media (max-width: 850px) { .league-grid, .player-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 850px) { .market-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -102,4 +113,6 @@ input:focus { outline: 2px solid var(--bears-orange); outline-offset: 1px; }
   .mode-toggle { margin-top: 16px; width: 100%; }
   .mode-button { flex: 1; }
   .submit-bar { margin-left: -16px; margin-right: -16px; border-radius: 0; }
+  .leaderboard-table { overflow-x: auto; }
+  .leaderboard-row { min-width: 520px; }
 }
