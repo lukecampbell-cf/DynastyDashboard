@@ -4,8 +4,8 @@
 
 An automated pipeline that pulls your Sleeper fantasy football rosters, cross-references
 player news from six sites, layers in FantasyPros consensus rankings and RosterAudit
-dynasty trade value, runs it all through Claude for a trend/recommendation call per
-player, and renders the result as a static HTML dashboard.
+dynasty trade value, runs signal-bearing league changes through the configured AI
+provider, and renders the result as a static HTML dashboard.
 
 For install/deploy/cron instructions, see [SETUP.md](SETUP.md). This file covers what
 the pipeline does and how the pieces fit together.
@@ -18,17 +18,17 @@ for exactly how the pipeline degrades if it's unavailable or its pricing changes
 
 ## Pipeline
 
-```
-orchestrator.py
+```text
+dynasty_dashboard.orchestrator
   │
-  ├─ 1. sleeper_agent.py   → your rosters, enriched with FantasyPros rank + RosterAudit trade value
-  ├─ 2. contract_agent.py  → real NFL contract terms per player, scraped from Spotrac
-  ├─ 3. news_agent.py      → injury/trade/depth-chart news, matched to your roster
-  ├─ 4. reasoning_agent.py → Claude analysis: trend, confidence, recommendation
-  └─ 5. dashboard_agent.py → renders + writes index.html
+  ├─ 1. sleeper_agent          → rosters + FantasyPros/RosterAudit values
+  ├─ 2. contract_agent         → Spotrac contract terms
+  ├─ 3. news_agent             → injury/trade/depth-chart news
+  ├─ 4. league_reasoning_agent → batched analysis + deterministic stable verdicts
+  └─ 5. dashboard_agent        → renders + writes index.html
 ```
 
-Each step's output feeds the next. `orchestrator.py` runs them in order and degrades
+Each step's output feeds the next. `dynasty_dashboard/orchestrator.py` runs them in order and degrades
 gracefully if contract lookup or news scraping fail (continues with the data it has)
 but stops if Sleeper or Reasoning fail outright, since there's nothing to render
 without them.
@@ -42,14 +42,14 @@ than rosters do, hence the longer window.
 
 Run it with:
 ```bash
-python orchestrator.py            # writes to the configured web root
-python orchestrator.py --dry-run  # writes to /tmp instead, for previewing
-python orchestrator.py --debug    # also dumps intermediate JSON to debug/
+python -m dynasty_dashboard            # writes to the configured web root
+python -m dynasty_dashboard --dry-run  # writes to /tmp instead, for previewing
+python -m dynasty_dashboard --debug    # also dumps intermediate JSON to debug/
 ```
 
 ---
 
-## 1. Sleeper Agent (`sleeper_agent.py`)
+## 1. Sleeper Agent (`dynasty_dashboard/sleeper_agent.py`)
 
 Fetches your leagues and rosters from the public Sleeper API (no auth required) for
 the username in `SLEEPER_USERNAME` (`.env`). The season is resolved dynamically from
@@ -68,7 +68,7 @@ For each league, it also:
   for players it hasn't seen before.
 - **Derives a trade value tier** (e.g. "Mid 1st", "Early 3rd", "Waiver / Deep Stash").
   For dynasty leagues this comes from RosterAudit's market values (see
-  `trade_value_agent.py` below) — a real, weekly-refreshed valuation rather than a
+  `dynasty_dashboard/trade_value_agent.py` below) — a real, weekly-refreshed valuation rather than a
   hand-rolled bucket. Redraft leagues, and any player RosterAudit hasn't ranked yet,
   fall back to the old heuristic: bucketing the FantasyPros consensus rank into
   4-player slices (early/mid/late thirds of a round, sized for a 12-team startup
@@ -128,7 +128,7 @@ matching, and Spotrac contract re-lookups) on the next run.
 
 ### `trade_values.json` — weekly RosterAudit dynasty market values
 
-Fetched by `trade_value_agent.py`, called from within `sleeper_agent.run()` (it isn't
+Fetched by `dynasty_dashboard/trade_value_agent.py`, called from within `sleeper_agent.run()` (it isn't
 its own orchestrator step, the same way the FantasyPros fetch above isn't). Pulls
 RosterAudit's `get_dynasty_rankings` endpoint on the ["rosteraudit.com API"](https://parse.bot/marketplace/0df80132-239a-4553-97df-7b36fed4d070/rosteraudit-com-api)
 listing on Parse Bot (same `PARSE_BOT_API` key as the other Parse Bot calls), paginating
@@ -176,7 +176,7 @@ the successful format is still saved fresh. This matters because both formats us
 merged into one result before checking whether the refresh as a whole was empty, so a
 clean fetch for one format could make a genuinely failed fetch for the *other* format look
 non-empty and let it silently overwrite its own valid cached data. `degraded_formats`
-lists which format(s), if any, fell back this run — `orchestrator.py` surfaces this as its
+lists which format(s), if any, fell back this run — `dynasty_dashboard/orchestrator.py` surfaces this as its
 own "trade values" pipeline stage (see Health output below). If a format has never been
 successfully fetched at all (first-ever run, or a sustained outage), it simply stays empty
 and every dynasty player in that format falls back to the FantasyPros rank heuristic until
@@ -193,7 +193,7 @@ Normal Predictions page requests only read prepared market JSON; they never
 start Python or call an LLM. A private operator prepares one week with:
 
 ```bash
-python3 predictions_generate_markets.py --username exampleuser --season 2026 --week 4 --all-leagues
+python3 -m dynasty_dashboard.predictions_generate_markets --username exampleuser --season 2026 --week 4 --all-leagues
 ```
 
 To regenerate a subset, replace `--all-leagues` with one or more
@@ -221,7 +221,7 @@ for the public/private layout, permissions, configuration, and checks.
 
 ### `player_directory.json` — weekly full player + trade value directory
 
-Built by `player_directory_agent.py`, called from within `sleeper_agent.run()` right
+Built by `dynasty_dashboard/player_directory_agent.py`, called from within `sleeper_agent.run()` right
 after `all_players` (Sleeper's full player DB, already fetched for step 1) and
 `rosteraudit_data` (trade values, both formats, already fetched above) are available.
 
@@ -254,7 +254,7 @@ calculator's player pool.
 
 ---
 
-## 2. Contract Agent (`contract_agent.py`)
+## 2. Contract Agent (`dynasty_dashboard/contract_agent.py`)
 
 Looks up each roster player's real-world NFL contract on Spotrac and writes the result
 into the `contract` key of that player's entry in `player_cache.json`, alongside the
@@ -290,14 +290,14 @@ match, e.g. a very deep stash) is cached too, so it isn't re-queried every run �
 simply retried after the same 4-week window in case the player gets a Spotrac page
 later.
 
-This contract data feeds `reasoning_agent.py`'s `contract_note`: when a verified match
-exists, Claude is instructed to state those actual terms rather than its own
+This contract data feeds `dynasty_dashboard/league_reasoning_agent.py`'s `contract_note`: when a verified match
+exists, the configured model receives those actual terms rather than relying on
 best-effort guess; when it doesn't, the prompt falls back to the previous
 general-knowledge hedge.
 
 ---
 
-## 3. News Agent (`news_agent.py`)
+## 3. News Agent (`dynasty_dashboard/news_agent.py`)
 
 Pulls player news from six sources and cross-references them by name:
 
@@ -355,7 +355,7 @@ Sleeper roster entry.
 
 ---
 
-## 4. League Reasoning Agent (`league_reasoning_agent.py`)
+## 4. League Reasoning Agent (`dynasty_dashboard/league_reasoning_agent.py`)
 
 The active reasoning path stores canonical player facts in `player_store.json`, writes
 small membership/status views under `league_snapshots/`, and caches model results in
@@ -397,7 +397,7 @@ Trending Up, Trending Down, or Watch Carefully. All omitted roster players are a
 deterministically to a separate No Action bucket, so a default stable player is never
 presented as an AI watch recommendation.
 
-## 5. Dashboard Agent (`dashboard_agent.py`)
+## 5. Dashboard Agent (`dynasty_dashboard/dashboard_agent.py`)
 
 Renders the reasoning output into a static `index.html` — one card per player showing
 trend icon, confidence badge, roster designation (WR1/WR2/etc.), summary, recommendation,
@@ -410,7 +410,7 @@ target league on click — keeps the page navigable as a single static "app" wit
 needing a build step or JS framework.
 
 A header banner ("Since the previous analysis: **3** changed materially · **2** may need
-a look · **301** stable") summarises `reasoning_agent.py`'s `change_summary` in plain
+a look · **301** stable") summarises `dynasty_dashboard/league_reasoning_agent.py`'s `change_summary` in plain
 language — no cache/fingerprint/model terminology — so opening the dashboard answers
 "what's new since I last looked?" without scanning every card; it's omitted entirely when
 there's nothing to report. Within each trend column, `material_change` players sort ahead
@@ -427,13 +427,13 @@ trade calculator with that player preselected (see below).
 
 ## Trade Calculator (`trade_calculator.php`)
 
-A standalone tool, separate from the pipeline above — it isn't run by `orchestrator.py`
+A standalone tool, separate from the pipeline above — it isn't run by `dynasty_dashboard/orchestrator.py`
 and doesn't call any API. It reads `player_directory.json` (every fantasy-relevant NFL
 player + trade value, see step 1's player-directory section above) and `trade_values.json`
 (for its pick tier chart) directly, server-side, on each page load, and lets you build a
 two-sided trade (any player, plus future picks) to get a fairness verdict, computed
 client-side in vanilla JS from the embedded value data. Pick values come from the same
-RosterAudit tier chart `trade_value_agent.py` already builds — a pick you add is priced
+RosterAudit tier chart `dynasty_dashboard/trade_value_agent.py` already builds — a pick you add is priced
 at its tier's `min_value` for whichever format (Superflex / 1QB) is selected.
 
 Verdict is `min(sideA, sideB) / max(sideA, sideB)`, bucketed into Yes / Close Yes / Close
@@ -470,8 +470,9 @@ part of the unit suite" convention on the Python side).
 | `player_cache.json` → `.<id>.contract` | Spotrac contract terms per player | 4 weeks per player |
 | `trade_values.json` (project root) | RosterAudit dynasty trade values + pick tier chart, sf & 1qb (each format refreshed/preserved independently) | 1 week per format |
 | `player_directory.json` (project root) | Every fantasy-relevant NFL player + trade value (sf & 1qb), for trade_calculator.php | 1 week |
-| `player_analysis_cache.json` (project root) | Per-player Claude reasoning, keyed by Sleeper player_id — `generated_at`/`last_reused_at` split, see step 4 | 7 days per player (`generated_at` only) |
-| `league_summary_cache.json` (project root) | Per-league Haiku executive summary, keyed by league_id | regenerated only when trend/injury counts change |
+| `player_store.json` (project root) | Canonical player facts, keyed by Sleeper player ID | rewritten after each reasoning run |
+| `league_snapshots/*.json` | Per-league roster membership/status snapshots | rewritten after each reasoning run |
+| `league_analysis_cache.json` (project root) | Provider/model/payload fingerprint and the last successful batched league analysis | reused until provider, model, or payload changes |
 | `pipeline.log` | Orchestrator run log | append-only |
 | `health.json` (project root) | Last run status, per-step (and per-news-source) errors, stale-cache flags | rewritten every run |
 | `debug/*.json` | Intermediate stage output, only with `--debug` | per run |
@@ -485,9 +486,9 @@ could otherwise briefly serve a half-written page.
 
 ---
 
-## Pipeline Health (`health_agent.py`)
+## Pipeline Health (`dynasty_dashboard/health_agent.py`)
 
-`orchestrator.py` writes `health.json` at the end of every `run_pipeline()` call — success
+`dynasty_dashboard/orchestrator.py` writes `health.json` at the end of every `run_pipeline()` call — success
 *or* failure, on every exit path — via `health_agent.record_run(steps, success)`. It tracks:
 
 - **`last_run_at` / `last_run_success`** — this run's outcome.
@@ -498,14 +499,14 @@ could otherwise briefly serve a half-written page.
   own `ok`/`error`/`items` count). A single "news step failed" flag hides which of six
   independent sources is actually broken; this doesn't.
 - **`stale_caches`** — `player_cache.json`, `trade_values.json`, `player_directory.json`,
-  and `player_analysis_cache.json` checked against their own freshness windows (mirroring
+  and `league_analysis_cache.json` checked against their freshness windows (mirroring
   the constants each agent already enforces on itself). A cache going stale here means
   something's been silently broken for days — an expired API key, a changed selector, a
   dead cron job — not just "no news today."
 - **`overall_ok`** — `last_run_success` AND no stale caches. Point an uptime monitor at
   this file (or a small wrapper reading it) if you want alerting on pipeline health.
 
-Read it directly as JSON, or run `python health_agent.py` for a human-readable summary of
+Read it directly as JSON, or run `python -m dynasty_dashboard.health_agent` for a human-readable summary of
 the last recorded run.
 
 `health.json`'s on-disk shape above is unchanged, but `run_pipeline()` itself now returns

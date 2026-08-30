@@ -28,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import news_agent  # noqa: E402
+from dynasty_dashboard import news_agent  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [SMOKE] %(message)s")
 log = logging.getLogger("scraper_smoke_test")

@@ -18,7 +18,7 @@
 
 declare(strict_types=1);
 
-require __DIR__ . '/../trade_calculator_lib.php';
+require __DIR__ . '/../web/trade_calculator_lib.php';
 
 $failures = 0;
 $checked = 0;

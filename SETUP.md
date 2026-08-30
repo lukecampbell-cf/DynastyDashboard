@@ -68,7 +68,7 @@ sudo chmod 775 /var/www/vhosts/your-domain.com/httpdocs/dashboard
 
 ```bash
 source venv/bin/activate
-python orchestrator.py --dry-run
+python -m dynasty_dashboard --dry-run
 ```
 
 This writes to /tmp/dynasty_dashboard_preview.html — open it in a browser (scp it locally) to verify the output before going live.
@@ -78,7 +78,7 @@ This writes to /tmp/dynasty_dashboard_preview.html — open it in a browser (scp
 ## 6. Run for real
 
 ```bash
-python orchestrator.py
+python -m dynasty_dashboard
 ```
 
 Dashboard will be live at: https://your-domain.com/dashboard/
@@ -94,10 +94,10 @@ crontab -e
 Add:
 ```
 # Dynasty Dashboard — refresh every 4 hours
-0 */4 * * * cd /var/www/vhosts/your-domain.com/dashboard && /var/www/vhosts/your-domain.com/dashboard/venv/bin/python orchestrator.py >> /var/www/vhosts/your-domain.com/dashboard/cron.log 2>&1
+0 */4 * * * cd /var/www/vhosts/your-domain.com/dashboard && /var/www/vhosts/your-domain.com/dashboard/venv/bin/python -m dynasty_dashboard >> /var/www/vhosts/your-domain.com/dashboard/cron.log 2>&1
 
 # During season (Sep-Jan): hourly on match days (Thu, Sun, Mon)
-# 0 * * * 0,1,4 cd /var/www/vhosts/your-domain.com/dashboard && /var/www/vhosts/your-domain.com/dashboard/venv/bin/python orchestrator.py >> cron.log 2>&1
+# 0 * * * 0,1,4 cd /var/www/vhosts/your-domain.com/dashboard && /var/www/vhosts/your-domain.com/dashboard/venv/bin/python -m dynasty_dashboard >> cron.log 2>&1
 ```
 
 Replace `your-domain.com` and paths above with your actual VPS domain and username.
@@ -124,21 +124,24 @@ Then: sudo nginx -t && sudo systemctl reload nginx
 
 ```
 dynasty-dashboard/
-├── orchestrator.py       ← run this
-├── sleeper_agent.py      ← fetches your Sleeper rosters (bio details, 2-week cache)
-├── contract_agent.py     ← Spotrac contract lookup per player (4-week cache)
-├── news_agent.py         ← scrapes injury/trade news
-├── league_reasoning_agent.py ← switchable OpenAI/Anthropic league analysis
-├── signal_evidence.py    ← deterministic injury-evidence provenance + material-change classification
-├── common.py             ← shared helpers: atomic JSON/HTML writes, staleness checks
-├── dashboard_agent.py    ← renders and writes HTML
-├── health_agent.py       ← writes health.json every run; `python health_agent.py` for a summary
-├── trade_calculator.php  ← standalone trade fairness tool, reads the JSON caches directly
-├── trade_calculator_lib.php ← shared validation logic (query-param preselect), used by the above
+├── dynasty_dashboard/    ← importable Python application package
+│   ├── orchestrator.py   ← pipeline entry point (`python -m dynasty_dashboard`)
+│   ├── *_agent.py        ← pipeline and Predictions agents
+│   ├── common.py         ← shared atomic-write and cache helpers
+│   ├── paths.py          ← explicit package/project path boundary
+│   └── schemas.py        ← shared TypedDict contracts
+├── tests/                ← Python unit and repository-layout tests
+├── scripts/              ← operator adapters and PHP regression scripts
+├── web/
+│   ├── trade_calculator.php
+│   ├── trade_calculator_lib.php
+│   └── predictions/      ← deployable Predictions PHP application
 ├── player_cache.json     ← per-player bio + contract cache (self-building, safe to delete)
 ├── trade_values.json     ← RosterAudit dynasty trade values, sf & 1qb refreshed independently (weekly)
 ├── player_directory.json ← every fantasy-relevant NFL player + trade value (weekly, powers trade_calculator.php)
-├── player_analysis_cache.json ← per-player Claude reasoning cache (see README's Reasoning Agent section)
+├── player_store.json      ← canonical player facts used by league reasoning
+├── league_snapshots/      ← compact per-league membership/status views
+├── league_analysis_cache.json ← successful batched league analyses and fingerprints
 ├── health.json            ← last run status, per-step/per-source errors, stale-cache flags
 ├── requirements.txt
 ├── .env                  ← your API key (never commit)
@@ -159,8 +162,8 @@ A standalone PHP page — not part of the Python pipeline — that reads
 and `trade_values.json` (for its pick tier chart) directly to let you build a
 two-sided trade and get a fairness verdict. It doesn't call any API or write
 to either file; it's a read-only consumer of caches the pipeline already
-maintains — `player_directory.json` is built by `player_directory_agent.py`,
-called automatically from `sleeper_agent.run()`, so there's nothing extra to
+maintains — `player_directory.json` is built by `dynasty_dashboard/player_directory_agent.py`,
+called automatically from the Sleeper agent, so there's nothing extra to
 schedule.
 
 Requires PHP (PHP-FPM behind nginx, or your host's equivalent) able to
@@ -170,7 +173,7 @@ on your VPS you'll need to install `php-fpm` and add an nginx block for it
 (the exact steps depend on your distro/PHP version — see your OS's php-fpm
 package docs).
 
-**Deploy both PHP files together.** `trade_calculator.php` does
+**Deploy both PHP files together from `web/`.** `trade_calculator.php` does
 `require __DIR__ . '/trade_calculator_lib.php'`, so the two must land in the
 same directory. Copying only `trade_calculator.php` gives you a PHP fatal
 (500 or blank page). Copying only the new `trade_calculator.php` over a
@@ -180,10 +183,10 @@ whenever either one changes. The dashboard's "Explore Trade" deep link
 stale `trade_calculator.php` ignores the `?player=` id and loads an empty
 Side A.
 
-**Simplest deployment:** drop `trade_calculator.php` and
-`trade_calculator_lib.php` in the project root, next to
-`player_directory.json` and `trade_values.json`. The calculator defaults to
-reading the JSON from its own directory. Add an nginx `location` block
+**Simplest deployment:** copy `web/trade_calculator.php` and
+`web/trade_calculator_lib.php` into the public dashboard directory. Set
+`DASHBOARD_DATA_DIR` to the private/project data directory containing
+`player_directory.json` and `trade_values.json`. Add an nginx `location` block
 pointing at that directory (same `alias` pattern as the dashboard block in
 step 8 above), e.g.:
 
@@ -264,11 +267,11 @@ Run the complete offline suite before deployment:
 
 ```bash
 python -m unittest discover -p "test_*.py" -v
-php scripts/test_predictions_phase1.php
-php scripts/test_predictions_phase2.php
-php scripts/test_predictions_phase4.php
-php scripts/test_predictions_phase5.php
-php scripts/test_predictions_phase6.php
+php scripts/test_predictions_access_and_roster.php
+php scripts/test_predictions_projection_engine.php
+php scripts/test_predictions_card_submission.php
+php scripts/test_predictions_results.php
+php scripts/test_predictions_deployment.php
 ```
 
 Verify `/dashboard/`, `/dashboard/predictions/`, and navigation in both
@@ -293,10 +296,10 @@ Anthropic-only compatibility fallback.
 
 **News scraping returns 0 items**
 → Sites may have changed structure. Check pipeline.log for specific errors. The reasoning agent will still run with Sleeper data alone.
-→ Or run `python health_agent.py` — it'll name exactly which of the six news sources is failing and why, instead of one blanket "news step" status.
+→ Or run `python -m dynasty_dashboard.health_agent` — it'll name exactly which of the six news sources is failing and why, instead of one blanket "news step" status.
 
 **Not sure if the pipeline is actually healthy**
-→ Run `python health_agent.py` for a summary: last run status, per-step errors, per-news-source errors, and which caches have gone stale. `health.json` is rewritten every run (success or failure) so it never reflects a status older than your last cron tick.
+→ Run `python -m dynasty_dashboard.health_agent` for a summary: last run status, per-step errors, per-news-source errors, and which caches have gone stale. `health.json` is rewritten every run (success or failure) so it never reflects a status older than your last cron tick.
 
 **Contract lookups or ESPN news all come back empty**
 → Check PARSE_BOT_API is set in .env and hasn't hit its Parse Bot rate/credit limit (check pipeline.log for 401/429 responses from api.parse.bot).
@@ -309,7 +312,7 @@ Anthropic-only compatibility fallback.
 section above).
 → If `PRESELECT` is there and the page shows a note saying the player isn't in the
 directory, the id genuinely isn't in `player_directory.json`. Rebuild it with
-`python player_directory_agent.py` (running it directly always forces a rebuild).
+`python -m dynasty_dashboard.player_directory_agent` (running it directly always forces a rebuild).
 
 **Dashboard renders but looks wrong**
 → Run --dry-run, scp the HTML to your local machine and inspect in browser dev tools

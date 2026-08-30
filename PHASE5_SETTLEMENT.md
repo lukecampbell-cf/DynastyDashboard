@@ -20,7 +20,7 @@ Predictions uses one canonical Half-PPR profile, independent of a Sleeper league
 
    ```bash
    PREDICTIONS_DB_PATH=/private/path/predictions.sqlite \
-     python3 prediction_settlement_agent.py /private/path/actual_scores_2026_04.json
+     python3 -m dynasty_dashboard.prediction_settlement_agent /private/path/actual_scores_2026_04.json
    ```
 
 The command validates the filename, period, IDs and finite numeric scores before starting a transaction. It assigns WIN, LOSS, PUSH or VOID, awards 100 points per WIN, and marks a card settled only after none of its picks remain pending. Re-running the same file is safe: terminal picks and already-settled cards are unchanged. Results, history and leaderboard pages read SQLite and make no provider or LLM calls.
