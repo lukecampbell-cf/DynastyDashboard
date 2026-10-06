@@ -140,7 +140,7 @@ class LeagueBucketTests(unittest.TestCase):
 
     def test_league_context_renders_record_odds_standings_and_projections(self):
         context = {
-            "my_standing": {"rank": 2, "playoff_chance": 73.4, "record": {"wins": 5, "losses": 3, "ties": 0}},
+            "my_standing": {"rank": 2, "playoff_chance": 73.4, "playoff_status": "In the Playoff Picture", "record": {"wins": 5, "losses": 3, "ties": 0}},
             "standings": [
                 {"rank": 1, "team_name": "Leader", "is_me": False, "record": {"wins": 6, "losses": 2, "points_for": 900}, "playoff_chance": 90.0},
                 {"rank": 2, "team_name": "My Team", "is_me": True, "record": {"wins": 5, "losses": 3, "points_for": 850}, "playoff_chance": 73.4},
@@ -150,6 +150,7 @@ class LeagueBucketTests(unittest.TestCase):
         html = da.render_league_section(make_league(league_context=context))
         self.assertIn("5-3", html)
         self.assertIn("73.4%", html)
+        self.assertIn("In the Playoff Picture", html)
         self.assertIn("Week 9 Matchup", html)
         self.assertIn("111.2", html)
         self.assertIn("League Standings", html)
@@ -162,6 +163,40 @@ class LeagueBucketTests(unittest.TestCase):
         }
         html = da.render_league_section(make_league(league_context=context))
         self.assertIn("Projections are not available", html)
+
+
+class TeamOutlookSummaryTests(unittest.TestCase):
+    def _league(self, name, status, chance, rank=1, wins=5, losses=3):
+        return make_league(
+            league_id=name.lower().replace(" ", "-"),
+            league_name=name,
+            league_context={"my_standing": {
+                "playoff_status": status,
+                "playoff_chance": chance,
+                "rank": rank,
+                "record": {"wins": wins, "losses": losses},
+            }},
+        )
+
+    def test_groups_teams_by_status_in_outlook_order(self):
+        leagues = [
+            self._league("Bubble League", "On the Bubble", 48.2),
+            self._league("Safe League", "Locked In", 99.5),
+            self._league("Hunt League", "In the Hunt", 30.0),
+        ]
+        html = da.render_team_outlook_summary(leagues)
+        self.assertLess(html.index("Locked In"), html.index("On the Bubble"))
+        self.assertLess(html.index("On the Bubble"), html.index("In the Hunt"))
+        self.assertIn("Safe League", html)
+        self.assertIn("99.5%", html)
+        self.assertIn("5-3 · #1", html)
+
+    def test_team_card_links_to_league_section(self):
+        html = da.render_team_outlook_summary([self._league("My League", "Locked In", 100)])
+        self.assertIn('href="#league-my-league"', html)
+
+    def test_omits_summary_when_no_league_has_standing_context(self):
+        self.assertEqual(da.render_team_outlook_summary([make_league()]), "")
 
 class SafeUrlTests(unittest.TestCase):
     def test_allows_http_and_https(self):

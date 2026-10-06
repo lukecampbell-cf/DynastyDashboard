@@ -293,7 +293,8 @@ def render_league_context(context: dict) -> str:
         f'<td>{esc(row.get("rank"))}</td><td>{esc(row.get("team_name"))}</td>'
         f'<td>{esc(row.get("record", {}).get("wins", 0))}-{esc(row.get("record", {}).get("losses", 0))}</td>'
         f'<td>{esc(row.get("record", {}).get("points_for", 0))}</td>'
-        f'<td>{esc(row.get("playoff_chance", 0))}%</td></tr>'
+        f'<td><strong>{esc(row.get("playoff_chance", 0))}%</strong>'
+        f'<span class="playoff-status">{esc(row.get("playoff_status", ""))}</span></td></tr>'
         for row in context.get("standings", [])
     )
     matchup = context.get("matchup")
@@ -318,7 +319,7 @@ def render_league_context(context: dict) -> str:
         <div class="season-outlook">
           <div><span class="context-label">My record</span><strong>{esc(record_text)}</strong></div>
           <div><span class="context-label">Standing</span><strong>#{esc(mine.get('rank', '—'))}</strong></div>
-          <div><span class="context-label">Playoff chance</span><strong>{esc(mine.get('playoff_chance', 0))}%</strong></div>
+          <div><span class="context-label">Playoff outlook</span><strong>{esc(mine.get('playoff_chance', 0))}%</strong><span class="outlook-status">{esc(mine.get('playoff_status', ''))}</span></div>
         </div>
         {matchup_html}
         <div class="standings-card">
@@ -402,6 +403,57 @@ def render_league_nav(leagues: list[LeagueResult]) -> str:
 <nav class="league-nav">
   {links}
 </nav>"""
+
+
+PLAYOFF_STATUS_ORDER = (
+    "Locked In",
+    "Controls Their Destiny",
+    "In the Playoff Picture",
+    "On the Bubble",
+    "In the Hunt",
+    "Needs Help",
+    "Eliminated",
+)
+
+
+def render_team_outlook_summary(leagues: list[LeagueResult]) -> str:
+    """Cross-league at-a-glance view of the user's teams, grouped by outlook."""
+    grouped: dict[str, list[tuple[LeagueResult, dict]]] = {status: [] for status in PLAYOFF_STATUS_ORDER}
+    for league in leagues:
+        mine = (league.get("league_context") or {}).get("my_standing")
+        if not isinstance(mine, dict):
+            continue
+        status = str(mine.get("playoff_status") or "On the Bubble")
+        grouped.setdefault(status, []).append((league, mine))
+
+    if not any(grouped.values()):
+        return ""
+
+    sections = []
+    ordered_statuses = list(PLAYOFF_STATUS_ORDER) + [s for s in grouped if s not in PLAYOFF_STATUS_ORDER]
+    for status in ordered_statuses:
+        teams = grouped.get(status, [])
+        if not teams:
+            continue
+        teams.sort(key=lambda pair: float(pair[1].get("playoff_chance") or 0), reverse=True)
+        cards = "".join(
+            f'<a class="team-outlook-card" href="#{league_slug(league)}" data-target="{league_slug(league)}">'
+            f'<span class="team-outlook-league">{esc(league.get("league_name"))}</span>'
+            f'<span class="team-outlook-record">{esc(team.get("record", {}).get("wins", 0))}-{esc(team.get("record", {}).get("losses", 0))} · #{esc(team.get("rank", "—"))}</span>'
+            f'<strong>{esc(team.get("playoff_chance", 0))}%</strong></a>'
+            for league, team in teams
+        )
+        status_class = status.lower().replace(" ", "-")
+        sections.append(
+            f'<div class="team-outlook-group status-{esc(status_class)}">'
+            f'<div class="team-outlook-heading"><h3>{esc(status)}</h3><span>{len(teams)} team{"s" if len(teams) != 1 else ""}</span></div>'
+            f'<div class="team-outlook-cards">{cards}</div></div>'
+        )
+    return f"""
+<section class="team-outlook-summary">
+  <div class="section-title-row"><div><span class="eyebrow">Playoff Outlook</span><h2>My Teams</h2></div></div>
+  <div class="team-outlook-groups">{"".join(sections)}</div>
+</section>"""
 
 
 # Cap on cards shown per column in the cross-league trends panel — a manager

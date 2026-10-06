@@ -191,6 +191,25 @@ body {
   .global-trends-columns { grid-template-columns: 1fr; }
 }
 
+/* ── CROSS-LEAGUE PLAYOFF OUTLOOK ── */
+.team-outlook-summary { margin-bottom: 30px; }
+.team-outlook-groups { display: grid; gap: 12px; }
+.team-outlook-group { border: 1px solid var(--border); border-left: 4px solid var(--watch); border-radius: 8px; background: var(--navy-2); padding: 12px 14px; }
+.team-outlook-group.status-locked-in { border-left-color: var(--up); }
+.team-outlook-group.status-controls-their-destiny,
+.team-outlook-group.status-in-the-playoff-picture { border-left-color: #60a5fa; }
+.team-outlook-group.status-needs-help,
+.team-outlook-group.status-eliminated { border-left-color: var(--down); }
+.team-outlook-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+.team-outlook-heading h3 { color: #fff; font: 700 16px 'Barlow Condensed', sans-serif; text-transform: uppercase; letter-spacing: .07em; }
+.team-outlook-heading span { color: var(--muted); font-size: 11px; }
+.team-outlook-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+.team-outlook-card { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--navy-3); color: var(--text); text-decoration: none; transition: border-color .15s, transform .15s; }
+.team-outlook-card:hover { border-color: var(--bears-orange); transform: translateY(-1px); }
+.team-outlook-league { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
+.team-outlook-record { color: var(--muted); font-size: 10px; grid-column: 1; }
+.team-outlook-card strong { color: #fff; font: 700 18px 'Barlow Condensed', sans-serif; grid-column: 2; grid-row: 1 / 3; align-self: center; }
+
 /* ── LEAGUE SECTION ── */
 .league-details {
   margin-bottom: 24px;
@@ -312,6 +331,7 @@ body {
 .season-outlook > div { display: flex; flex-direction: column; gap: 5px; }
 .season-outlook strong { color: #fff; font: 700 22px 'Barlow Condensed', sans-serif; }
 .context-label { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+.outlook-status { color: var(--bears-orange); font: 600 12px 'Barlow Condensed', sans-serif; text-transform: uppercase; letter-spacing: .05em; }
 .matchup-card h3, .standings-card h3 { color: #fff; font: 700 15px 'Barlow Condensed', sans-serif; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; }
 .matchup-line { display: flex; justify-content: space-between; gap: 12px; color: var(--text); font-size: 13px; }
 .matchup-line strong { color: #fff; }
@@ -322,6 +342,7 @@ body {
 .standings-card th:nth-child(2), .standings-card td:nth-child(2) { text-align: left; width: 100%; }
 .standings-card th { color: var(--muted); font-size: 10px; text-transform: uppercase; }
 .standings-card tr.is-me { color: #fff; background: rgba(200, 56, 3, .15); }
+.playoff-status { display: block; color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .04em; }
 
 @media (max-width: 1100px) {
   .league-context { grid-template-columns: 1fr 1fr; }

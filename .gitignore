@@ -19,3 +19,5 @@ predictions.sqlite-shm
 predictions.sqlite-wal
 /venv
 web/predictions/includes/local_config.php
+*.gz
+*.prev

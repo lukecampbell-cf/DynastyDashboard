@@ -35,6 +35,7 @@ render_player_card = _components.render_player_card
 league_slug = _components.league_slug
 render_league_section = _components.render_league_section
 render_league_nav = _components.render_league_nav
+render_team_outlook_summary = _components.render_team_outlook_summary
 render_global_trends_section = _components.render_global_trends_section
 render_change_summary_banner = _components.render_change_summary_banner
 provider_display_name = _components.provider_display_name
@@ -59,6 +60,7 @@ def render_html(reasoning_data: ReasoningOutput) -> str:
         render_league_section(l, is_first=(i == 0)) for i, l in enumerate(leagues)
     )
     league_nav = render_league_nav(leagues)
+    team_outlook_summary = render_team_outlook_summary(leagues)
 
     global_up = reasoning_data.get("global_trends", {}).get("trending_up", [])
     global_down = reasoning_data.get("global_trends", {}).get("trending_down", [])
@@ -106,6 +108,7 @@ def render_html(reasoning_data: ReasoningOutput) -> str:
 
 <main class="main">
   {change_summary_banner}
+  {team_outlook_summary}
   {global_trends_section}
   {league_sections if league_sections else '<p style="color:var(--muted);text-align:center;padding:60px 0;">No league data available. Run the pipeline to populate.</p>'}
 </main>
@@ -115,7 +118,7 @@ def render_html(reasoning_data: ReasoningOutput) -> str:
 </footer>
 
 <script>
-  document.querySelectorAll('.league-nav-link').forEach(function (link) {{
+  document.querySelectorAll('.league-nav-link, .team-outlook-card').forEach(function (link) {{
     link.addEventListener('click', function (e) {{
       e.preventDefault();
       var target = document.getElementById(link.dataset.target);

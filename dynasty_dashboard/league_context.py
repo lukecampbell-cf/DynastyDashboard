@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import random
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -15,8 +16,35 @@ from .paths import PROJECT_ROOT
 
 log = logging.getLogger(__name__)
 
-LEAGUE_CONTEXT_CACHE_PATH = PROJECT_ROOT / "league_context_cache.json"
+LEAGUE_CONTEXT_CACHE_PATH = Path(os.environ.get("DASHBOARD_DATA_DIR", PROJECT_ROOT)).resolve() / "league_context_cache.json"
 SIMULATIONS = 5000
+
+
+def playoff_status(chance: float) -> str:
+    """Translate modelled odds into concise, NFL-style playoff language."""
+    if chance >= 99:
+        return "Locked In"
+    if chance >= 80:
+        return "Controls Their Destiny"
+    if chance >= 60:
+        return "In the Playoff Picture"
+    if chance >= 40:
+        return "On the Bubble"
+    if chance >= 15:
+        return "In the Hunt"
+    if chance > 0:
+        return "Needs Help"
+    return "Eliminated"
+
+
+def _add_playoff_statuses(context: dict) -> dict:
+    """Backfill labels when reading a cache created by an older release."""
+    for row in context.get("standings", []):
+        row["playoff_status"] = playoff_status(float(row.get("playoff_chance") or 0))
+    mine = context.get("my_standing")
+    if isinstance(mine, dict):
+        mine["playoff_status"] = playoff_status(float(mine.get("playoff_chance") or 0))
+    return context
 
 
 def _load_cache(path: Path = LEAGUE_CONTEXT_CACHE_PATH) -> dict:
@@ -26,6 +54,27 @@ def _load_cache(path: Path = LEAGUE_CONTEXT_CACHE_PATH) -> dict:
         return value if isinstance(value, dict) else {}
     except (FileNotFoundError, OSError, ValueError):
         return {}
+
+
+def initialize_cache(path: Path = LEAGUE_CONTEXT_CACHE_PATH) -> bool:
+    """Create or repair the cache before any league is processed."""
+    if path.exists():
+        try:
+            with open(path) as f:
+                value = json.load(f)
+            if isinstance(value, dict):
+                log.info("League context cache ready at %s", path.resolve())
+                return True
+            log.warning("League context cache at %s is not a JSON object; reinitializing", path.resolve())
+        except (OSError, ValueError) as exc:
+            log.warning("League context cache at %s is unreadable; reinitializing: %s", path.resolve(), exc)
+    try:
+        write_json_atomic(path, {}, sort_keys=True)
+        log.info("Initialized empty league context cache at %s", path.resolve())
+        return True
+    except OSError as exc:
+        log.warning("Could not initialize league context cache at %s: %s", path.resolve(), exc)
+        return False
 
 
 def _refresh_due(entry: Optional[dict], season: str, week: int, now: datetime) -> bool:
@@ -144,12 +193,14 @@ def build_context(
     standings: list[dict[str, Any]] = []
     for roster in rosters:
         rid = int(roster["roster_id"])
+        chance = odds.get(rid, 0.0)
         standings.append({
             "roster_id": rid,
             "team_name": _team_name(roster, users),
             "is_me": rid == int(my_roster_id),
             "record": _record(roster),
-            "playoff_chance": odds.get(rid, 0.0),
+            "playoff_chance": chance,
+            "playoff_status": playoff_status(chance),
         })
     standings.sort(
         key=lambda row: (row["record"]["wins"], row["record"]["ties"], row["record"]["points_for"]),
@@ -206,8 +257,15 @@ def get_league_context(
     if not _refresh_due(entry, season, week, now):
         log.info("Using weekly league context cache for league=%s week=%s", league_id, week)
         assert isinstance(entry, dict)
-        return entry["context"]
-    context = build_context(league, rosters, users, my_roster_id, week, fetch_matchups)
+        return _add_playoff_statuses(entry["context"])
+    context = _add_playoff_statuses(build_context(league, rosters, users, my_roster_id, week, fetch_matchups))
     cache[league_id] = {"season": season, "week": week, "fetched_at": now.isoformat(), "context": context}
-    write_json_atomic(cache_path, cache, sort_keys=True)
+    try:
+        write_json_atomic(cache_path, cache, sort_keys=True)
+    except OSError as exc:
+        # The published dashboard should not disappear merely because a
+        # deployment user can read the application directory but cannot
+        # create this newly introduced cache file. Return the live context
+        # for this render and retry persistence on the next pipeline run.
+        log.warning("Could not persist league context cache at %s: %s", cache_path, exc)
     return context

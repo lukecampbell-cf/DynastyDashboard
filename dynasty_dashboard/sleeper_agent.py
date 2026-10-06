@@ -36,7 +36,7 @@ from .sleeper_values import (
 )
 from . import player_directory_agent
 from . import trade_value_agent
-from .league_context import get_league_context
+from .league_context import get_league_context, initialize_cache
 
 log = logging.getLogger(__name__)
 
@@ -304,6 +304,7 @@ def run() -> SleeperOutput:
         "leagues": [],
         "trade_values_degraded": [],
     }
+    initialize_cache()
 
     # Step 1: Resolve user
     user = get_user(username)
