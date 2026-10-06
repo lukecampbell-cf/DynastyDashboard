@@ -280,6 +280,55 @@ def league_slug(league: LeagueResult) -> str:
     return f"league-{esc(league.get('league_id', 'unknown'))}"
 
 
+def render_league_context(context: dict) -> str:
+    """Render standings and the current head-to-head matchup."""
+    if not context:
+        return ""
+    mine = context.get("my_standing") or {}
+    record = mine.get("record") or {}
+    ties = int(record.get("ties") or 0)
+    record_text = f"{record.get('wins', 0)}-{record.get('losses', 0)}" + (f"-{ties}" if ties else "")
+    standings_rows = "".join(
+        f'<tr class="{"is-me" if row.get("is_me") else ""}">'
+        f'<td>{esc(row.get("rank"))}</td><td>{esc(row.get("team_name"))}</td>'
+        f'<td>{esc(row.get("record", {}).get("wins", 0))}-{esc(row.get("record", {}).get("losses", 0))}</td>'
+        f'<td>{esc(row.get("record", {}).get("points_for", 0))}</td>'
+        f'<td>{esc(row.get("playoff_chance", 0))}%</td></tr>'
+        for row in context.get("standings", [])
+    )
+    matchup = context.get("matchup")
+    if matchup:
+        projections_available = matchup.get("my_projection") is not None and matchup.get("opponent_projection") is not None
+        score_label = "Projected" if projections_available else "Live score"
+        my_score = matchup.get("my_projection") if projections_available else matchup.get("my_points")
+        opponent_score = matchup.get("opponent_projection") if projections_available else matchup.get("opponent_points")
+        projection_note = "" if projections_available else '<p class="projection-note">Projections are not available in this league feed.</p>'
+        matchup_html = f"""
+        <div class="matchup-card">
+          <h3>Week {esc(matchup.get('week'))} Matchup</h3>
+          <div class="matchup-line"><span>{esc(matchup.get('my_team'))}</span><strong>{esc(my_score)}</strong></div>
+          <div class="matchup-vs">{score_label} · vs</div>
+          <div class="matchup-line"><span>{esc(matchup.get('opponent_team'))}</span><strong>{esc(opponent_score)}</strong></div>
+          {projection_note}
+        </div>"""
+    else:
+        matchup_html = '<div class="matchup-card"><h3>Current Matchup</h3><p class="projection-note">No matchup is available for this week.</p></div>'
+    return f"""
+      <div class="league-context">
+        <div class="season-outlook">
+          <div><span class="context-label">My record</span><strong>{esc(record_text)}</strong></div>
+          <div><span class="context-label">Standing</span><strong>#{esc(mine.get('rank', '—'))}</strong></div>
+          <div><span class="context-label">Playoff chance</span><strong>{esc(mine.get('playoff_chance', 0))}%</strong></div>
+        </div>
+        {matchup_html}
+        <div class="standings-card">
+          <h3>League Standings</h3>
+          <div class="standings-scroll"><table><thead><tr><th>#</th><th>Team</th><th>Record</th><th>PF</th><th>Playoffs</th></tr></thead>
+          <tbody>{standings_rows}</tbody></table></div>
+        </div>
+      </div>"""
+
+
 def render_league_section(league: LeagueResult, is_first: bool = False) -> str:
     name = league["league_name"]
     season = league["season"]
@@ -296,6 +345,7 @@ def render_league_section(league: LeagueResult, is_first: bool = False) -> str:
     down_cards = "\n".join(render_player_card(p) for p in trending_down)
     watch_cards = "\n".join(render_player_card(p) for p in watch_list)
     no_action_cards = "\n".join(render_player_card(p) for p in no_action)
+    context_html = render_league_context(league.get("league_context", {}))
 
     return f"""
   <details class="league-details" id="{slug}"{" open" if is_first else ""}>
@@ -315,6 +365,7 @@ def render_league_section(league: LeagueResult, is_first: bool = False) -> str:
     </summary>
 
     <div class="league-body">
+      {context_html}
       {f'<div class="league-summary"><p>{esc(summary)}</p></div>' if summary else ''}
 
       <div class="trend-columns">

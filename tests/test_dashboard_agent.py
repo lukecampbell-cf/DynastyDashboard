@@ -138,6 +138,31 @@ class LeagueBucketTests(unittest.TestCase):
         self.assertIn("Stable Player", html)
         self.assertIn("NO_ACTION", html)
 
+    def test_league_context_renders_record_odds_standings_and_projections(self):
+        context = {
+            "my_standing": {"rank": 2, "playoff_chance": 73.4, "record": {"wins": 5, "losses": 3, "ties": 0}},
+            "standings": [
+                {"rank": 1, "team_name": "Leader", "is_me": False, "record": {"wins": 6, "losses": 2, "points_for": 900}, "playoff_chance": 90.0},
+                {"rank": 2, "team_name": "My Team", "is_me": True, "record": {"wins": 5, "losses": 3, "points_for": 850}, "playoff_chance": 73.4},
+            ],
+            "matchup": {"week": 9, "my_team": "My Team", "opponent_team": "Leader", "my_points": 0, "opponent_points": 0, "my_projection": 111.2, "opponent_projection": 108.7},
+        }
+        html = da.render_league_section(make_league(league_context=context))
+        self.assertIn("5-3", html)
+        self.assertIn("73.4%", html)
+        self.assertIn("Week 9 Matchup", html)
+        self.assertIn("111.2", html)
+        self.assertIn("League Standings", html)
+
+    def test_matchup_explains_when_projections_are_unavailable(self):
+        context = {
+            "my_standing": {"rank": 1, "playoff_chance": 80, "record": {"wins": 6, "losses": 2}},
+            "standings": [],
+            "matchup": {"week": 9, "my_team": "Me", "opponent_team": "Them", "my_points": 10, "opponent_points": 12, "my_projection": None, "opponent_projection": None},
+        }
+        html = da.render_league_section(make_league(league_context=context))
+        self.assertIn("Projections are not available", html)
+
 class SafeUrlTests(unittest.TestCase):
     def test_allows_http_and_https(self):
         self.assertEqual(da.safe_url("https://rotowire.com/x"), "https://rotowire.com/x")

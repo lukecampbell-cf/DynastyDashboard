@@ -295,6 +295,43 @@ body {
   line-height: 1.6;
 }
 
+/* ── STANDINGS + MATCHUP ── */
+.league-context {
+  display: grid;
+  grid-template-columns: minmax(230px, .7fr) minmax(260px, 1fr) minmax(420px, 1.6fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.season-outlook, .matchup-card, .standings-card {
+  background: var(--navy-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.season-outlook { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.season-outlook > div { display: flex; flex-direction: column; gap: 5px; }
+.season-outlook strong { color: #fff; font: 700 22px 'Barlow Condensed', sans-serif; }
+.context-label { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+.matchup-card h3, .standings-card h3 { color: #fff; font: 700 15px 'Barlow Condensed', sans-serif; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; }
+.matchup-line { display: flex; justify-content: space-between; gap: 12px; color: var(--text); font-size: 13px; }
+.matchup-line strong { color: #fff; }
+.matchup-vs, .projection-note { color: var(--muted); font-size: 11px; margin: 5px 0; }
+.standings-scroll { max-height: 220px; overflow: auto; }
+.standings-card table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.standings-card th, .standings-card td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
+.standings-card th:nth-child(2), .standings-card td:nth-child(2) { text-align: left; width: 100%; }
+.standings-card th { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+.standings-card tr.is-me { color: #fff; background: rgba(200, 56, 3, .15); }
+
+@media (max-width: 1100px) {
+  .league-context { grid-template-columns: 1fr 1fr; }
+  .standings-card { grid-column: 1 / -1; }
+}
+@media (max-width: 650px) {
+  .league-context { grid-template-columns: 1fr; }
+  .standings-card { grid-column: auto; }
+}
+
 /* ── TREND COLUMNS ── */
 .trend-columns {
   display: grid;

@@ -490,6 +490,7 @@ part of the unit suite" convention on the Python side).
 | `player_store.json` (project root) | Canonical player facts, keyed by Sleeper player ID | rewritten after each reasoning run |
 | `league_snapshots/*.json` | Per-league roster membership/status snapshots | rewritten after each reasoning run |
 | `league_analysis_cache.json` (project root) | Provider/model/payload fingerprint and the last successful batched league analysis | reused until provider, model, or payload changes |
+| `league_context_cache.json` (project root) | Standings, simulated playoff odds, and the current Sleeper matchup | weekly; refreshed on the first pipeline run Tuesday–Thursday |
 | `pipeline.log` | Orchestrator run log | append-only |
 | `health.json` (project root) | Last run status, per-step (and per-news-source) errors, stale-cache flags | rewritten every run |
 | `debug/*.json` | Intermediate stage output, only with `--debug` | per run |

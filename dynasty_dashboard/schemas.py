@@ -108,6 +108,7 @@ class LeagueRecord(TypedDict):
     settings: dict
     scoring_settings: dict
     ranking_format: str
+    league_context: dict
 
 
 class SleeperOutput(TypedDict):
@@ -238,6 +239,7 @@ class LeagueResult(TypedDict):
     watch_list: list[AnalysedPlayer]
     no_action: list[AnalysedPlayer]
     stats: LeagueStats
+    league_context: dict
 
 
 class GlobalTrends(TypedDict):

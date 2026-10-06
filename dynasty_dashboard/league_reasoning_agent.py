@@ -195,6 +195,7 @@ def run(sleeper_data: SleeperOutput, news_data: NewsOutput) -> ReasoningOutput:
                 "no_action": len(buckets["NO_ACTION"]),
                 "injured": sum(bool(player.get("has_injury_flag")) for player in analysed),
             },
+            "league_context": league.get("league_context", {}),
         }
         result["leagues"].append(league_result)
         for player in buckets["UP"]:

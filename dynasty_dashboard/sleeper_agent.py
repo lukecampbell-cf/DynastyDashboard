@@ -36,6 +36,7 @@ from .sleeper_values import (
 )
 from . import player_directory_agent
 from . import trade_value_agent
+from .league_context import get_league_context
 
 log = logging.getLogger(__name__)
 
@@ -128,6 +129,17 @@ def resolve_season(user_id: str) -> str:
     fallback = str(current_year - 1)
     log.warning(f"Could not resolve active season — defaulting to {fallback}")
     return fallback
+
+
+def get_nfl_state() -> dict:
+    """Return Sleeper's current NFL season/week state."""
+    try:
+        r = httpx.get(f"{SLEEPER_BASE}/state/nfl", timeout=10)
+        r.raise_for_status()
+        return r.json() or {}
+    except Exception as e:
+        log.warning(f"Failed to fetch NFL state: {e}")
+        return {}
 
 
 def get_rosters(league_id: str) -> list[dict]:
@@ -305,6 +317,8 @@ def run() -> SleeperOutput:
     # Step 2: Dynamically resolve the active season
     season = resolve_season(user_id)
     result["season"] = season
+    nfl_state = get_nfl_state()
+    current_week = int(nfl_state.get("week") or 1)
     log.info(f"Active season resolved: {season}")
 
     # Step 3: Fetch player database
@@ -346,6 +360,7 @@ def run() -> SleeperOutput:
 
         rosters = get_rosters(league_id)
         league_info = get_league_info(league_id)
+        league_users = get_users_in_league(league_id)
 
         # Find the user's roster
         my_roster = None
@@ -474,6 +489,14 @@ def run() -> SleeperOutput:
             "settings": league_settings,
             "scoring_settings": scoring_settings,
             "ranking_format": ranking_format,
+            "league_context": get_league_context(
+                {**(league_info or league), "league_id": league_id, "season": season},
+                rosters,
+                league_users,
+                int(my_roster["roster_id"]),
+                current_week,
+                get_matchups,
+            ),
         }
 
         result["leagues"].append(league_data)
