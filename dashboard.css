@@ -167,19 +167,38 @@ body {
   color: var(--bears-orange);
 }
 
-.global-trends {
-  margin-bottom: 32px;
+.overview-panel {
+  margin-bottom: 24px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--navy-2);
+  overflow: hidden;
 }
-
-.global-trends-title {
+.overview-panel summary { list-style: none; cursor: pointer; }
+.overview-panel summary::-webkit-details-marker { display: none; }
+.overview-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 18px;
+}
+.overview-panel[open] .overview-panel-title { border-bottom: 1px solid var(--border); }
+.overview-panel-title h2 {
   font-family: 'Barlow Condensed', sans-serif;
   font-size: 18px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #fff;
-  margin-bottom: 14px;
 }
+.overview-toggle {
+  display: inline-block;
+  color: var(--bears-orange);
+  font-size: 12px;
+  transition: transform .15s;
+}
+.overview-panel[open] .overview-toggle { transform: rotate(90deg); }
+.overview-panel-body { padding: 18px; }
 
 .global-trends-columns {
   display: grid;
@@ -192,7 +211,6 @@ body {
 }
 
 /* ── CROSS-LEAGUE PLAYOFF OUTLOOK ── */
-.team-outlook-summary { margin-bottom: 30px; }
 .team-outlook-groups { display: grid; gap: 12px; }
 .team-outlook-group { border: 1px solid var(--border); border-left: 4px solid var(--watch); border-radius: 8px; background: var(--navy-2); padding: 12px 14px; }
 .team-outlook-group.status-locked-in { border-left-color: var(--up); }

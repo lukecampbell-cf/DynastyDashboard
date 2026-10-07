@@ -450,10 +450,10 @@ def render_team_outlook_summary(leagues: list[LeagueResult]) -> str:
             f'<div class="team-outlook-cards">{cards}</div></div>'
         )
     return f"""
-<section class="team-outlook-summary">
-  <div class="section-title-row"><div><span class="eyebrow">Playoff Outlook</span><h2>My Teams</h2></div></div>
-  <div class="team-outlook-groups">{"".join(sections)}</div>
-</section>"""
+<details class="overview-panel team-outlook-summary" open>
+  <summary class="overview-panel-title"><span class="overview-toggle">▸</span><h2>🏈 Playoff Outlook — My Teams</h2></summary>
+  <div class="overview-panel-body"><div class="team-outlook-groups">{"".join(sections)}</div></div>
+</details>"""
 
 
 # Cap on cards shown per column in the cross-league trends panel — a manager
@@ -479,9 +479,9 @@ def render_global_trends_section(global_up: list[AnalysedPlayer], global_down: l
     down_cards = "\n".join(render_player_card(p) for p in global_down[:GLOBAL_TRENDS_MAX])
 
     return f"""
-  <section class="global-trends">
-    <h2 class="global-trends-title">📊 Trending Across All Leagues</h2>
-    <div class="global-trends-columns">
+  <details class="overview-panel global-trends" open>
+    <summary class="overview-panel-title"><span class="overview-toggle">▸</span><h2>📊 Trending Across All Leagues</h2></summary>
+    <div class="overview-panel-body"><div class="global-trends-columns">
       <div class="trend-col col-up">
         <h3 class="col-header up">▲ Trending Up</h3>
         {up_cards if up_cards else '<p class="no-data">No players trending up</p>'}
@@ -490,8 +490,8 @@ def render_global_trends_section(global_up: list[AnalysedPlayer], global_down: l
         <h3 class="col-header down">▼ Trending Down</h3>
         {down_cards if down_cards else '<p class="no-data">No players trending down</p>'}
       </div>
-    </div>
-  </section>"""
+    </div></div>
+  </details>"""
 
 
 def render_change_summary_banner(change_summary: dict) -> str:

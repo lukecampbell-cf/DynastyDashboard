@@ -190,6 +190,8 @@ class TeamOutlookSummaryTests(unittest.TestCase):
         self.assertIn("Safe League", html)
         self.assertIn("99.5%", html)
         self.assertIn("5-3 · #1", html)
+        self.assertIn('class="overview-panel team-outlook-summary" open', html)
+        self.assertIn("Playoff Outlook — My Teams", html)
 
     def test_team_card_links_to_league_section(self):
         html = da.render_team_outlook_summary([self._league("My League", "Locked In", 100)])
@@ -197,6 +199,12 @@ class TeamOutlookSummaryTests(unittest.TestCase):
 
     def test_omits_summary_when_no_league_has_standing_context(self):
         self.assertEqual(da.render_team_outlook_summary([make_league()]), "")
+
+    def test_global_trends_uses_same_collapsible_panel_shell(self):
+        html = da.render_global_trends_section([make_player()], [])
+        self.assertIn('class="overview-panel global-trends" open', html)
+        self.assertIn('class="overview-panel-title"', html)
+        self.assertIn('class="overview-panel-body"', html)
 
 class SafeUrlTests(unittest.TestCase):
     def test_allows_http_and_https(self):
